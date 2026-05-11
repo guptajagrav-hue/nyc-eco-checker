@@ -90,32 +90,38 @@ def get_environmental_data(lat, lon, borough):
     }
 
 # Function to create map
-def create_map(lat, lon, tree_count, heat_score):
+def create_map(lat, lon, tree_count, heat_score, is_outside_nyc=False):
     # Center map on location
     m = folium.Map(location=[lat, lon], zoom_start=16, tiles='CartoDB positron')
     
     # Add marker for the location
+    marker_color = 'red' if is_outside_nyc else 'green'
+    popup_text = f"📍 Your Location<br>🌳 {tree_count} trees nearby<br>🌡️ Heat: {heat_score}/5.0"
+    if is_outside_nyc:
+        popup_text += "<br><span style='color:red'>⚠️ OUTSIDE NYC DATA AREA</span>"
+    
     folium.Marker(
         [lat, lon],
-        popup=f"📍 Your Location<br>🌳 {tree_count} trees nearby<br>🌡️ Heat: {heat_score}/5.0",
-        icon=folium.Icon(color='red', icon='info-sign'),
+        popup=popup_text,
+        icon=folium.Icon(color=marker_color, icon='info-sign'),
         tooltip="Selected location"
     ).add_to(m)
     
     # Add tree density circle (500m radius)
+    circle_color = 'red' if is_outside_nyc else 'green'
     folium.Circle(
         radius=500,
         location=[lat, lon],
         popup=f'Search area: 500m radius<br>{tree_count} trees found',
-        color='green',
+        color=circle_color,
         weight=3,
         fill=True,
-        fill_color='lightgreen',
+        fill_color='lightcoral' if is_outside_nyc else 'lightgreen',
         fill_opacity=0.2
     ).add_to(m)
     
-    # ONLY ADD HEAT CIRCLES IF HEAT SCORE IS HIGH (>= 3.5)
-    if heat_score >= 3.5:
+    # ONLY ADD HEAT CIRCLES IF HEAT SCORE IS HIGH (>= 3.5) AND NOT OUTSIDE NYC
+    if not is_outside_nyc and heat_score >= 3.5:
         # Add realistic heat zones around the area
         heat_radius = 200
         heat_opacity = 0.4
@@ -132,7 +138,7 @@ def create_map(lat, lon, tree_count, heat_score):
             fill_opacity=heat_opacity
         ).add_to(m)
         
-        # Secondary heat zones in surrounding areas (only for high heat)
+        # Secondary heat zones in surrounding areas
         offsets = [(0.002, 0.002), (0.002, -0.002), (-0.002, 0.002), (-0.002, -0.002)]
         for dlat, dlon in offsets:
             folium.Circle(
@@ -149,7 +155,7 @@ def create_map(lat, lon, tree_count, heat_score):
     return m
 
 # Function to generate PDF report
-def generate_pdf(address, data, lat, lon, borough):
+def generate_pdf(address, data, lat, lon, borough, is_outside_nyc=False):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter)
     styles = getSampleStyleSheet()
@@ -160,14 +166,28 @@ def generate_pdf(address, data, lat, lon, borough):
         'CustomTitle',
         parent=styles['Heading1'],
         fontSize=24,
-        textColor=colors.green,
+        textColor=colors.red if is_outside_nyc else colors.green,
         spaceAfter=30
     )
     story.append(Paragraph("NYC Environmental Report", title_style))
     
+    # Warning if outside NYC
+    if is_outside_nyc:
+        warning_style = ParagraphStyle(
+            'Warning',
+            parent=styles['Normal'],
+            textColor=colors.red,
+            fontSize=12,
+            backColor=colors.lightyellow,
+            spaceAfter=10
+        )
+        story.append(Paragraph("<b>⚠️ WARNING: This location appears to be outside New York City's data coverage area.</b>", warning_style))
+        story.append(Paragraph("The tree count is 0 because NYC's tree census only covers the five boroughs.", warning_style))
+        story.append(Spacer(1, 20))
+    
     # Address and date
     story.append(Paragraph(f"<b>Location:</b> {address}", styles['Normal']))
-    story.append(Paragraph(f"<b>Borough:</b> {borough}", styles['Normal']))
+    story.append(Paragraph(f"<b>Borough:</b> {borough if not is_outside_nyc else 'N/A (Outside NYC)'}", styles['Normal']))
     story.append(Paragraph(f"<b>Coordinates:</b> {lat:.4f}, {lon:.4f}", styles['Normal']))
     story.append(Paragraph(f"<b>Report Generated:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
     story.append(Spacer(1, 20))
@@ -195,30 +215,33 @@ def generate_pdf(address, data, lat, lon, borough):
     story.append(table)
     story.append(Spacer(1, 20))
     
-    # Overall Score
-    story.append(Paragraph(f"<b>Overall Neighborhood Score:</b> {data['overall_score']:.0f}/100", styles['Heading2']))
-    
-    # Score interpretation
-    if data['overall_score'] >= 70:
-        interpretation = "Excellent environmental quality!"
-    elif data['overall_score'] >= 50:
-        interpretation = "Good - room for improvement"
-    else:
-        interpretation = "Needs improvement"
-    story.append(Paragraph(interpretation, styles['Normal']))
-    story.append(Spacer(1, 20))
+    # Overall Score (only show if valid)
+    if not is_outside_nyc or data['overall_score'] > 0:
+        story.append(Paragraph(f"<b>Overall Neighborhood Score:</b> {data['overall_score']:.0f}/100", styles['Heading2']))
+        
+        if data['overall_score'] >= 70:
+            interpretation = "Excellent environmental quality!"
+        elif data['overall_score'] >= 50:
+            interpretation = "Good - room for improvement"
+        else:
+            interpretation = "Needs improvement"
+        story.append(Paragraph(interpretation, styles['Normal']))
+        story.append(Spacer(1, 20))
     
     # Recommendations
     story.append(Paragraph("<b>Recommendations:</b>", styles['Heading3']))
     recommendations = []
-    if data['tree_count'] < 100:
-        recommendations.append("• Plant a street tree through NYC Parks' Tree Planting program")
-    if data['heat_score'] >= 3.5:
-        recommendations.append("• Use reflective materials on roof/pavement to reduce heat")
-    if data['recycle_rate'] < 20:
-        recommendations.append("• Separate recyclables: paper, plastic, glass, metal")
-    if data['transit_score'] < 50:
-        recommendations.append("• Advocate for more bus stops and bike lanes")
+    if is_outside_nyc:
+        recommendations.append("• This location is outside NYC's tree census coverage. Try a location within the five boroughs: Manhattan, Brooklyn, Queens, Bronx, or Staten Island")
+    else:
+        if data['tree_count'] < 100:
+            recommendations.append("• Plant a street tree through NYC Parks' Tree Planting program")
+        if data['heat_score'] >= 3.5:
+            recommendations.append("• Use reflective materials on roof/pavement to reduce heat")
+        if data['recycle_rate'] < 20:
+            recommendations.append("• Separate recyclables: paper, plastic, glass, metal")
+        if data['transit_score'] < 50:
+            recommendations.append("• Advocate for more bus stops and bike lanes")
     
     if recommendations:
         for rec in recommendations:
@@ -282,6 +305,26 @@ if address:
         # Get environmental data
         data = get_environmental_data(lat, lon, borough)
         
+        # ===== CHECK IF OUTSIDE NYC (tree_count == 0) =====
+        is_outside_nyc = (data['tree_count'] == 0)
+        
+        # Show RED WARNING BOX if tree count is 0
+        if is_outside_nyc:
+            st.error("""
+            🚫 **OUT OF NYC DATA AREA**
+            
+            This location appears to be **outside New York City** or in an area without tree census data.
+            
+            The NYC Tree Census only covers the **five boroughs**:
+            - Manhattan
+            - Brooklyn  
+            - Queens
+            - Bronx
+            - Staten Island
+            
+            Please try a location within NYC for accurate tree data.
+            """)
+        
         # Create two columns for layout
         col1, col2 = st.columns([2, 1])
         
@@ -289,65 +332,87 @@ if address:
             st.subheader("🗺️ Interactive Map")
             st.markdown("*🟢 Green circle: 500m search radius*")
             
-            # Only show heat warning if applicable
-            if data['heat_score'] >= 3.5:
+            # Show heat warning only if applicable and not outside NYC
+            if not is_outside_nyc and data['heat_score'] >= 3.5:
                 st.warning(f"🔥 High heat vulnerability area (Score: {data['heat_score']}/5.0) - Red zones show heat islands")
+            elif is_outside_nyc:
+                st.info("📍 Map shows your location, but tree data is not available outside NYC")
             
-            m = create_map(lat, lon, data['tree_count'], data['heat_score'])
+            m = create_map(lat, lon, data['tree_count'], data['heat_score'], is_outside_nyc)
             st_folium(m, width=600, height=400)
         
         with col2:
             st.subheader("📊 Key Metrics")
-            st.metric("🌳 Trees within 500m", data['tree_count'])
-            st.metric("🌡️ Heat Score", f"{data['heat_score']}/5.0")
-            st.metric("♻️ Recycling Rate", f"{data['recycle_rate']}%")
-            st.metric("🚌 Transit Score", f"{data['transit_score']}/100")
+            
+            # Show metrics with warning styling if outside NYC
+            if is_outside_nyc:
+                st.metric("🌳 Trees within 500m", "0", delta="⚠️ OUTSIDE NYC DATA AREA")
+                st.metric("🌡️ Heat Score", f"{data['heat_score']}/5.0 (Estimated)")
+                st.metric("♻️ Recycling Rate", f"{data['recycle_rate']}% (Estimated)")
+                st.metric("🚌 Transit Score", f"{data['transit_score']}/100 (Estimated)")
+            else:
+                st.metric("🌳 Trees within 500m", data['tree_count'])
+                st.metric("🌡️ Heat Score", f"{data['heat_score']}/5.0")
+                st.metric("♻️ Recycling Rate", f"{data['recycle_rate']}%")
+                st.metric("🚌 Transit Score", f"{data['transit_score']}/100")
         
-        # Overall score
-        st.markdown("---")
-        st.subheader("⭐ Overall Neighborhood Score")
-        st.progress(int(data['overall_score']))
-        st.markdown(f"### {data['overall_score']:.0f}/100")
-        
-        if data['overall_score'] >= 70:
-            st.success("🌟 Excellent environmental quality and transit access!")
-        elif data['overall_score'] >= 50:
-            st.info("👍 Good - room for improvement")
+        # Only show overall score if inside NYC
+        if not is_outside_nyc:
+            # Overall score
+            st.markdown("---")
+            st.subheader("⭐ Overall Neighborhood Score")
+            st.progress(int(data['overall_score']))
+            st.markdown(f"### {data['overall_score']:.0f}/100")
+            
+            if data['overall_score'] >= 70:
+                st.success("🌟 Excellent environmental quality and transit access!")
+            elif data['overall_score'] >= 50:
+                st.info("👍 Good - room for improvement")
+            else:
+                st.warning("⚠️ Needs more trees, better recycling, or transit access")
+            
+            # Score breakdown
+            with st.expander("📊 View detailed score breakdown"):
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.metric("Tree Score", f"{data['tree_score']:.0f}/100")
+                    st.metric("Heat Score (normalized)", f"{data['heat_normalized']:.0f}/100")
+                with col_b:
+                    st.metric("Recycling Score", f"{data['recycle_score']:.0f}/100")
+                    st.metric("Transit Score", f"{data['transit_score']}/100")
+            
+            # Recommendations
+            st.markdown("---")
+            st.subheader("💡 Recommendations")
+            
+            if data['tree_count'] < 100:
+                st.markdown("- 🌳 Plant a street tree via NYC Parks' Tree Planting program")
+            if data['heat_score'] >= 3.5:
+                st.markdown("- 🏠 Use reflective materials on roof/pavement to reduce heat absorption")
+            if data['recycle_rate'] < 20:
+                st.markdown("- ♻️ Separate recyclables correctly: paper, plastic, glass, metal")
+            if data['transit_score'] < 50:
+                st.markdown("- 🚌 Advocate for more bus stops and protected bike lanes")
+            elif data['overall_score'] >= 60:
+                st.markdown("- ✅ Your neighborhood is doing well! Share this report with neighbors")
         else:
-            st.warning("⚠️ Needs more trees, better recycling, or transit access")
+            # Outside NYC - show alternative message
+            st.markdown("---")
+            st.info("""
+            💡 **To get accurate environmental data:**
+            
+            1. Try a location within the five NYC boroughs
+            2. Examples: 'Times Square, Manhattan', 'Brooklyn Bridge Park', 'Flushing, Queens'
+            3. The map shows estimated values for demonstration purposes
+            """)
         
-        # Score breakdown
-        with st.expander("📊 View detailed score breakdown"):
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.metric("Tree Score", f"{data['tree_score']:.0f}/100")
-                st.metric("Heat Score (normalized)", f"{data['heat_normalized']:.0f}/100")
-            with col_b:
-                st.metric("Recycling Score", f"{data['recycle_score']:.0f}/100")
-                st.metric("Transit Score", f"{data['transit_score']}/100")
-        
-        # Recommendations
-        st.markdown("---")
-        st.subheader("💡 Recommendations")
-        
-        if data['tree_count'] < 100:
-            st.markdown("- 🌳 Plant a street tree via NYC Parks' Tree Planting program")
-        if data['heat_score'] >= 3.5:
-            st.markdown("- 🏠 Use reflective materials on roof/pavement to reduce heat absorption")
-        if data['recycle_rate'] < 20:
-            st.markdown("- ♻️ Separate recyclables correctly: paper, plastic, glass, metal")
-        if data['transit_score'] < 50:
-            st.markdown("- 🚌 Advocate for more bus stops and protected bike lanes")
-        elif data['overall_score'] >= 60:
-            st.markdown("- ✅ Your neighborhood is doing well! Share this report with neighbors")
-        
-        # PDF Export Button
+        # PDF Export Button (always available)
         st.markdown("---")
         col_export, col_empty = st.columns([1, 3])
         with col_export:
             if st.button("📄 Export Report as PDF", type="primary"):
                 with st.spinner("Generating PDF..."):
-                    pdf_buffer = generate_pdf(address, data, lat, lon, borough)
+                    pdf_buffer = generate_pdf(address, data, lat, lon, borough, is_outside_nyc)
                     st.download_button(
                         label="📥 Download PDF Report",
                         data=pdf_buffer,
@@ -364,13 +429,13 @@ else:
     - **PDF Reports** - Download professional environmental reports
     - **Live Tree Data** - Real tree census from NYC Open Data
     - **Conditional Heat Zones** - Red circles ONLY appear in high-heat areas
+    - **Out of Area Detection** - Red warning when location is outside NYC
     
     ### Example locations to try:
-    - Times Square
-    - Brooklyn Bridge
-    - Prospect Park, Brooklyn
-    - Central Park
-    - 250 Bedford Ave, Brooklyn
+    - Times Square (Inside NYC ✅)
+    - Brooklyn Bridge (Inside NYC ✅)
+    - White House (Outside NYC 🚫 - will show warning)
+    - Central Park (Inside NYC ✅)
     """)
 
 st.markdown("---")
