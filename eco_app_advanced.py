@@ -217,6 +217,7 @@ if address:
             # Try multiple search formats
             search_terms = [
                 f"{address}, New York City",
+                f"{address}, Manhattan",
                 f"{address}, NYC",
                 f"{address}, NY",
                 address
