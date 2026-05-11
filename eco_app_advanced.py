@@ -32,7 +32,7 @@ address = st.sidebar.text_input("Enter NYC address, landmark, or neighborhood:",
 # Initialize geocoder
 @st.cache_resource
 def get_geocoder():
-    return Nominatim(user_agent="eco_app")
+    return Nominatim(user_agent="eco_app", timeout=30)
 
 # Function to get environmental data
 def get_environmental_data(lat, lon, address, borough):
@@ -210,25 +210,52 @@ def generate_pdf(address, data, lat, lon):
     return buffer
 
 if address:
-    with st.spinner("Finding location..."):
-        geocoder = get_geocoder()
-        location = geocoder.geocode(f"{address}, New York City")
-        
-        if not location:
-            st.error("❌ Location not found. Try being more specific.")
+    with st.spinner("Finding location... (this may take 10-15 seconds)"):
+        try:
+            geocoder = get_geocoder()
+            
+            # Try multiple search formats
+            search_terms = [
+                f"{address}, New York City",
+                f"{address}, NYC",
+                f"{address}, NY",
+                address
+            ]
+            
+            location = None
+            for search_term in search_terms:
+                try:
+                    location = geocoder.geocode(search_term, timeout=30)
+                    if location:
+                        break
+                except:
+                    continue
+            
+            if not location:
+                st.error("❌ Location not found. Try:")
+                st.info("- 'Times Square, Manhattan'\n- 'Prospect Park, Brooklyn'\n- 'Flushing, Queens'")
+                st.stop()
+                
+        except Exception as e:
+            st.error(f"Geocoding service temporarily unavailable. Please try again.")
+            st.info("💡 Tip: Use 'Borough, NYC' format (e.g., 'Queens, NYC')")
             st.stop()
         
         lat, lon = location.latitude, location.longitude
         
         # Determine borough
         borough = "Manhattan"
-        for b in ["Brooklyn", "Queens", "Manhattan", "Bronx", "Staten Island"]:
-            if b in location.address:
+        boroughs = ["Brooklyn", "Queens", "Manhattan", "Bronx", "Staten Island"]
+        for b in boroughs:
+            if b in location.address or b in address:
                 borough = b
                 break
         
         st.success(f"✅ Found: {location.address[:80]}...")
         st.info(f"📌 Coordinates: {lat:.4f}, {lon:.4f}")
+        
+        # Rest of your code continues here...
+        # (keep everything below this point exactly the same)
         
         # Get environmental data
         data = get_environmental_data(lat, lon, address, borough)
