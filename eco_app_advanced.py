@@ -332,17 +332,41 @@ if st.session_state.lat and st.session_state.lon:
                 st.metric("Recycling", f"{recycle_rate}% vs {comp_data['recycle']}%")
                 st.metric("Transit", f"{transit_score} vs {comp_data['transit']}")
     
-    if st.button("📄 Generate Complete Block Action Plan"):
-        st.success("""
+        with st.expander("📋 View Complete Block Action Plan", expanded=False):
+            st.markdown("""
         **YOUR CUSTOM ACTION PLAN**
-        
-        1. 🌳 Plant street trees (priority: highest)
-        2. 🏠 Apply for cool pavement pilot program
-        3. ♻️ Organize block composting orientation
-        4. 🚲 Attend community board transit meeting
-        5. 📢 Share your Tree Equity Score with local representatives
-        
-        **Estimated 5-year impact:** 8°F cooler, $50k property value increase
+    
+        1. 🌳 **Plant street trees** (priority: highest)
+        - Apply for free street trees through NYC Parks
+        - Goal: Add 15-20 trees to your block
+    
+        2. 🏠 **Apply for cool pavement pilot program**
+        - Light-colored pavement reduces heat by 30°F
+        - Contact your community board
+    
+        3. ♻️ **Organize block composting orientation**
+        - Connect with NYC Compost Project
+        - Reduce waste by 30%
+    
+        4. 🚲 **Attend community board transit meeting**
+        - Advocate for protected bike lanes
+         - Request more frequent bus service
+    
+        5. 📢 **Share your Tree Equity Score**
+        - Present to local representatives
+        - Join a tree equity campaign
+    
+        ---
+        ### 🌟 Estimated 5-year impact:
+        - 🌡️ 8°F cooler on your block
+        - 💰 $50k property value increase
+        - 🌳 50% more tree canopy
+        - ♻️ 40% waste diversion
+    
+        ### 📞 Need help getting started?
+        - 📧 Email: trees@parks.nyc.gov
+        - 📱 Call 311 (say "tree planting")
+        - 👥 Share this plan with neighbors
         """)
     
     with st.expander("🔌 Data Export (JSON/CSV)"):
