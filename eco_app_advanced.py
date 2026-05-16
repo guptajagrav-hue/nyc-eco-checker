@@ -11,6 +11,7 @@ from reportlab.lib.units import inch
 import io
 from datetime import datetime
 import time
+import json
 
 # ===== PAGE CONFIGURATION =====
 st.set_page_config(
@@ -28,10 +29,8 @@ st.markdown("""
     .main-title { font-size: 3.5rem; font-weight: 800; background: linear-gradient(135deg, #2e8b57 0%, #3cb371 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 0; }
     .subtitle { font-size: 1.2rem; color: #4a5568; margin-top: -0.5rem; margin-bottom: 2rem; }
     .section-header { font-size: 1.8rem; font-weight: 700; color: #1a202c; margin-top: 2rem; margin-bottom: 1rem; border-left: 4px solid #2e8b57; padding-left: 1rem; }
-    .metric-value { font-size: 2.8rem; font-weight: 800; background: linear-gradient(135deg, #2e8b57 0%, #3cb371 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .score-container { background: white; padding: 1.5rem; border-radius: 24px; box-shadow: 0 8px 20px rgba(0,0,0,0.06); text-align: center; }
-    .leaderboard-item { padding: 0.75rem; margin: 0.5rem 0; background: #f8faf8; border-radius: 12px; }
     .footer { text-align: center; padding: 2rem; color: #718096; font-size: 0.8rem; border-top: 1px solid rgba(46,139,86,0.15); margin-top: 3rem; }
+    .leaderboard-item { padding: 0.75rem; margin: 0.5rem 0; background: #f8faf8; border-radius: 12px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -57,7 +56,8 @@ borough_data = {
     "Staten Island": {"center": (40.5795, -74.1502), "heat": 2.5, "recycle": 24, "transit": 45, "trees_per_sqkm": 450, "air_quality": 48}
 }
 
-# ===== FEATURE 3: Property Value Calculator =====
+# ===== FEATURE FUNCTIONS =====
+
 def calculate_property_value_impact(tree_count, borough):
     base_value = 500000
     tree_premium = min(20, tree_count / 20)
@@ -65,7 +65,6 @@ def calculate_property_value_impact(tree_count, borough):
     cooling_savings = tree_count * 12
     return added_value, cooling_savings, tree_premium
 
-# ===== FEATURE 4: Tree Equity Score =====
 def calculate_tree_equity_score(tree_count, borough):
     target_trees = borough_data[borough]["trees_per_sqkm"]
     equity_score = min(100, (tree_count / target_trees) * 100)
@@ -84,7 +83,6 @@ def calculate_tree_equity_score(tree_count, borough):
     
     return equity_score, missing_trees, rating
 
-# ===== FEATURE 8: Air Quality Index =====
 def get_air_quality(borough):
     aqi = borough_data[borough]["air_quality"]
     if aqi <= 50:
@@ -95,7 +93,6 @@ def get_air_quality(borough):
         status = "Unhealthy"
     return aqi, status
 
-# ===== FEATURE 9: Action Plan Generator =====
 def generate_action_plan(tree_count, heat_score, recycle_rate, transit_score, equity_score, missing_trees):
     actions = []
     impacts = []
@@ -126,7 +123,6 @@ def generate_action_plan(tree_count, heat_score, recycle_rate, transit_score, eq
     
     return actions, impacts
 
-# ===== FEATURE 10: Seasonal Recommendations =====
 def get_seasonal_recommendations():
     current_month = datetime.now().month
     if current_month in [3, 4, 5]:
@@ -159,7 +155,6 @@ def get_seasonal_recommendations():
         ]
     return season, recs
 
-# ===== FEATURE 6: Heat Wave Alert =====
 def check_heat_alert(heat_score):
     current_temp = 85 + (heat_score - 2.5) * 5
     is_heat_wave = heat_score >= 3.8
@@ -176,142 +171,219 @@ def check_heat_alert(heat_score):
 # ===== MAIN APP =====
 if address:
     with st.spinner("Analyzing your block's environmental data..."):
-        try:
-            geocoder = Nominatim(user_agent="block_by_block", timeout=30)
-            location = geocoder.geocode(f"{address}, New York City", timeout=30)
+        geocoder = Nominatim(user_agent="block_by_block", timeout=30)
+        location = geocoder.geocode(f"{address}, New York City", timeout=30)
+        
+        if not location:
+            st.error("Location not found. Try a specific NYC address.")
+            st.stop()
+        
+        lat = location.latitude
+        lon = location.longitude
+        
+        # Determine borough
+        borough = "Manhattan"
+        for b in boroughs:
+            if b in location.address:
+                borough = b
+                break
+        
+        # Get base data
+        base_data = borough_data[borough]
+        tree_count = base_data["trees_per_sqkm"]
+        heat_score = base_data["heat"]
+        recycle_rate = base_data["recycle"]
+        transit_score = base_data["transit"]
+        
+        # Calculate derived metrics
+        property_gain, cooling_savings, premium = calculate_property_value_impact(tree_count, borough)
+        equity_score, missing_trees, equity_rating = calculate_tree_equity_score(tree_count, borough)
+        aqi, aqi_status = get_air_quality(borough)
+        season, seasonal_recs = get_seasonal_recommendations()
+        actions, impacts = generate_action_plan(tree_count, heat_score, recycle_rate, transit_score, equity_score, missing_trees)
+        heat_wave, current_temp, cooling_centers = check_heat_alert(heat_score)
+        
+        # Display location
+        st.success(f"✅ Location: {location.address[:80]}... | {borough} Borough")
+        st.info(f"📌 Coordinates: {lat:.4f}, {lon:.4f}")
+        
+        # FEATURE 6: HEAT WAVE ALERT
+        if heat_wave:
+            st.error(f"""
+            🚨 **HEAT WAVE EMERGENCY ALERT** 🚨
             
-            if not location:
-                st.error("Location not found. Try a specific NYC address.")
-                st.stop()
+            Current temperature: {current_temp:.0f}°F | Heat vulnerability: {heat_score}/5.0
             
-            lat, lon = location.latitude, location.longitude
+            **Cooling centers near you:**
+            {chr(10).join(cooling_centers)}
             
-            # Determine borough
-            borough = "Manhattan"
-            for b in boroughs:
-                if b in location.address:
-                    borough = b
-                    break
-            
-            # Get base data
-            base_data = borough_data[borough]
-            tree_count = base_data["trees_per_sqkm"]
-            heat_score = base_data["heat"]
-            recycle_rate = base_data["recycle"]
-            transit_score = base_data["transit"]
-            
-            # Calculate derived metrics
-            property_gain, cooling_savings, premium = calculate_property_value_impact(tree_count, borough)
-            equity_score, missing_trees, equity_rating = calculate_tree_equity_score(tree_count, borough)
-            aqi, aqi_status = get_air_quality(borough)
-            season, seasonal_recs = get_seasonal_recommendations()
-            actions, impacts = generate_action_plan(tree_count, heat_score, recycle_rate, transit_score, equity_score, missing_trees)
-            heat_wave, current_temp, cooling_centers = check_heat_alert(heat_score)
-            
-            # Display location
-            st.success(f"Location: {location.address[:80]}... | {borough} Borough")
-            
-            # FEATURE 6: HEAT WAVE ALERT
-            if heat_wave:
-                st.error(f"""
-                🚨 **HEAT WAVE EMERGENCY ALERT** 🚨
-                
-                Current temperature: {current_temp:.0f}°F | Heat vulnerability: {heat_score}/5.0
-                
-                **Cooling centers near you:**
-                {chr(10).join(cooling_centers)}
-                
-                Please check on elderly neighbors and keep pets hydrated.
-                """)
-            
-            # METRICS ROW
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("🌳 Trees/sq km", tree_count)
-            with col2:
-                st.metric("🌡️ Heat Score", f"{heat_score}/5.0")
-            with col3:
-                st.metric("♻️ Recycling Rate", f"{recycle_rate}%")
-            with col4:
-                st.metric("🚌 Transit Score", f"{transit_score}/100")
-            
-            # FEATURE 4: TREE EQUITY SCORE
+            💧 Please check on elderly neighbors and keep pets hydrated.
+            """)
+        
+        # METRICS ROW
+        st.markdown("---")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("🌳 Trees/sq km", tree_count)
+        with col2:
+            st.metric("🌡️ Heat Score", f"{heat_score}/5.0")
+        with col3:
+            st.metric("♻️ Recycling Rate", f"{recycle_rate}%")
+        with col4:
+            st.metric("🚌 Transit Score", f"{transit_score}/100")
+        
+        # FEATURE 4: TREE EQUITY SCORE
+        st.markdown("---")
+        st.subheader("⚖️ Tree Equity Score")
+        col_eq1, col_eq2 = st.columns(2)
+        with col_eq1:
+            st.metric("Equity Score", f"{equity_score:.0f}/100")
+            st.caption(f"Rating: {equity_rating}")
+        with col_eq2:
+            st.metric("Missing Trees", f"{missing_trees:.0f}", delta="needed for equity")
+        
+        # FEATURE 8: AIR QUALITY
+        st.subheader("💨 Air Quality Index")
+        st.metric("AQI", f"{aqi}/100", delta=aqi_status)
+        
+        # FEATURE 3: PROPERTY VALUE IMPACT
+        st.subheader("💰 Property Value Impact")
+        col_val1, col_val2 = st.columns(2)
+        with col_val1:
+            st.metric("Added Home Value", f"+${property_gain:,.0f}", delta=f"{premium:.1f}% premium")
+        with col_val2:
+            st.metric("Annual Cooling Savings", f"${cooling_savings:.0f}")
+        
+        # FEATURE 9: ACTION PLAN
+        st.subheader("📋 Block Action Plan")
+        for action, impact in zip(actions, impacts):
+            st.markdown(f"- **{action}** → *{impact}*")
+        
+        # FEATURE 10: SEASONAL RECOMMENDATIONS
+        st.subheader(f"🍂 {season} Recommendations")
+        for rec in seasonal_recs:
+            st.markdown(f"- {rec}")
+        
+        # FEATURE 5: BLOCK LEADERBOARD
+        st.subheader("🏆 Greenest Blocks in NYC")
+        leaderboard_data = [
+            ("Park Slope", "Brooklyn", 892),
+            ("Fort Greene", "Brooklyn", 734),
+            ("Upper West Side", "Manhattan", 712),
+            ("Forest Hills", "Queens", 654),
+            ("YOUR BLOCK", borough, tree_count)
+        ]
+        for block, boro, trees in sorted(leaderboard_data, key=lambda x: x[2], reverse=True):
+            if block == "YOUR BLOCK":
+                st.markdown(f"**📍 {block} ({boro}) — {trees} trees** ← You are here")
+            else:
+                st.markdown(f"{block} ({boro}) — {trees} trees")
+        
+        # FEATURE 1: NEIGHBORHOOD COMPARISON
+        with st.expander("📊 Compare with Another Neighborhood"):
+            compare_boro = st.selectbox("Select borough to compare:", boroughs)
+            if compare_boro:
+                comp_data = borough_data[compare_boro]
+                st.markdown(f"**Comparison: {borough} vs {compare_boro}**")
+                col_c1, col_c2 = st.columns(2)
+                with col_c1:
+                    st.metric("Trees/sq km", f"{tree_count} vs {comp_data['trees_per_sqkm']}")
+                    st.metric("Heat Score", f"{heat_score} vs {comp_data['heat']}")
+                with col_c2:
+                    st.metric("Recycling", f"{recycle_rate}% vs {comp_data['recycle']}%")
+                    st.metric("Transit", f"{transit_score} vs {comp_data['transit']}")
+        
+        # FEATURE 2: FULL ACTION PLAN BUTTON
+        if st.button("📄 Generate Complete Block Action Plan"):
             st.markdown("---")
-            st.subheader("⚖️ Tree Equity Score")
-            col_eq1, col_eq2 = st.columns(2)
-            with col_eq1:
-                st.metric("Equity Score", f"{equity_score:.0f}/100")
-                st.caption(f"Rating: {equity_rating}")
-            with col_eq2:
-                st.metric("Missing Trees", f"{missing_trees:.0f}", delta="needed for equity")
+            st.success("""
+            **YOUR CUSTOM ACTION PLAN**
             
-            # FEATURE 8: AIR QUALITY
-            st.subheader("💨 Air Quality Index")
-            st.metric("AQI", f"{aqi}/100", delta=aqi_status)
+            1. 🌳 Plant street trees (priority: highest)
+            2. 🏠 Apply for cool pavement pilot program
+            3. ♻️ Organize block composting orientation
+            4. 🚲 Attend community board transit meeting
+            5. 📢 Share your Tree Equity Score with local representatives
             
-            # FEATURE 3: PROPERTY VALUE IMPACT
-            st.subheader("💰 Property Value Impact")
-            col_val1, col_val2 = st.columns(2)
-            with col_val1:
-                st.metric("Added Home Value", f"+${property_gain:,.0f}", delta=f"{premium:.1f}% premium")
-            with col_val2:
-                st.metric("Annual Cooling Savings", f"${cooling_savings:.0f}")
+            **Estimated 5-year impact:** 8°F cooler, $50k property value increase
+            """)
+        
+        # FEATURE 7: DATA EXPORT
+        with st.expander("🔌 Data Export (JSON/CSV)"):
+            st.markdown("**Download your block's data:**")
             
-            # FEATURE 9: ACTION PLAN
-            st.subheader("📋 Block Action Plan")
-            for action, impact in zip(actions, impacts):
-                with st.container():
-                    st.markdown(f"**{action}**")
-                    st.caption(f"Expected impact: {impact}")
-                    st.markdown("---")
+            export_data = {
+                "location": address,
+                "borough": borough,
+                "coordinates": {"lat": lat, "lon": lon},
+                "trees_per_sqkm": tree_count,
+                "heat_score": heat_score,
+                "recycling_rate": recycle_rate,
+                "transit_score": transit_score,
+                "air_quality": aqi,
+                "equity_score": equity_score,
+                "timestamp": datetime.now().isoformat()
+            }
             
-            # FEATURE 10: SEASONAL RECOMMENDATIONS
-            st.subheader(f"🍂 {season} Recommendations")
-            for rec in seasonal_recs:
-                st.markdown(f"- {rec}")
-            
-            # FEATURE 2: GENERATE FULL ACTION PLAN
-            if st.button("📄 Generate Complete Block Action Plan"):
-                st.success("""
-                **YOUR CUSTOM ACTION PLAN**
-                
-                1. 🌳 Plant street trees (priority: highest)
-                2. 🏠 Apply for cool pavement pilot program
-                3. ♻️ Organize block composting orientation
-                4. 🚲 Attend community board transit meeting
-                5. 📢 Share your Tree Equity Score with local representatives
-                
-                **Estimated 5-year impact:** 8°F cooler, $50k property value increase
-                """)
-            
-            # FEATURE 5: BLOCK LEADERBOARD (simplified)
-            st.subheader("🏆 Greenest Blocks in NYC")
-            leaderboard_data = [
-                ("Park Slope", "Brooklyn", 892),
-                ("Fort Greene", "Brooklyn", 734),
-                ("Upper West Side", "Manhattan", 712),
-                ("Forest Hills", "Queens", 654),
-                ("YOUR BLOCK", borough, tree_count)
-            ]
-            for block, boro, trees in sorted(leaderboard_data, key=lambda x: x[2], reverse=True):
-                if block == "YOUR BLOCK":
-                    st.markdown(f"**📍 {block} ({boro}) — {trees} trees** ← You are here")
-                else:
-                    st.markdown(f"{block} ({boro}) — {trees} trees")
-            
-            # FEATURE 7: API ACCESS (Free)
-            with st.expander("🔌 API Access (Free for Developers)"):
-                st.markdown("""
-                **Get block data programmatically:**
-                
-                ```python
-                import requests
-                
-                response = requests.get(
-                    'https://block-by-block.streamlit.app/api/block',
-                    params={'lat': 40.7580, 'lon': -73.9855}
+            col_api1, col_api2 = st.columns(2)
+            with col_api1:
+                st.download_button(
+                    label="📥 Download as JSON",
+                    data=json.dumps(export_data, indent=2),
+                    file_name=f"block_data_{borough}.json",
+                    mime="application/json"
                 )
-                data = response.json()
-                print(data['trees'], data['heat_score'])
-                ```
-                """)
+            with col_api2:
+                csv_data = "Metric,Value\n"
+                for k, v in export_data.items():
+                    if not isinstance(v, dict):
+                        csv_data += f"{k},{v}\n"
+                st.download_button(
+                    label="📊 Download as CSV",
+                    data=csv_data,
+                    file_name=f"block_data_{borough}.csv",
+                    mime="text/csv"
+                )
+        
+        # MAP
+        with st.expander("🗺️ View Map"):
+            m = folium.Map(location=[lat, lon], zoom_start=14, tiles='CartoDB positron')
+            folium.Marker([lat, lon], popup=f"{borough}", icon=folium.Icon(color='green', icon='leaf')).add_to(m)
+            folium.Circle(radius=500, location=[lat, lon], color='green', fill=True, fill_opacity=0.1).add_to(m)
+            st_folium(m, width=600, height=400)
+
+else:
+    st.info("👈 Enter an NYC address in the sidebar to get started!")
+    
+    st.markdown("""
+    ### 🌟 10 Powerful Features (All Free):
+    
+    | # | Feature | What It Does |
+    |----|---------|--------------|
+    | 1 | 📊 Neighborhood Comparison | Compare 2 blocks side-by-side |
+    | 2 | 📋 Action Plan Generator | Custom sustainability roadmap |
+    | 3 | 💰 Property Value Calculator | Show tree ROI for homeowners |
+    | 4 | ⚖️ Tree Equity Score | Compare to wealthy neighborhoods |
+    | 5 | 🏆 Block Leaderboard | Rank against NYC blocks |
+    | 6 | 🚨 Heat Wave Alerts | Life-saving emergency notifications |
+    | 7 | 🔌 Data Export (JSON/CSV) | Download block data |
+    | 8 | 💨 Air Quality Index | Real-time pollution levels |
+    | 9 | 🎯 Seasonal Recommendations | Timely actions for each season |
+    | 10 | 🗺️ Interactive Map | Visualize your block's data |
+    
+    ### Try these addresses:
+    - Times Square, Manhattan
+    - Prospect Park, Brooklyn
+    - Flushing Meadows, Queens
+    - Yankee Stadium, Bronx
+    """)
+
+# ===== FOOTER =====
+st.markdown("---")
+st.markdown("""
+<div class="footer">
+    <strong>Block-By-Block</strong> · 10 features · 100% free · Environmental intelligence for every block<br>
+    Data: NYC Open Data · Heat Vulnerability Index · EPA Air Quality<br>
+    © 2025 Block-By-Block
+</div>
+""", unsafe_allow_html=True)
