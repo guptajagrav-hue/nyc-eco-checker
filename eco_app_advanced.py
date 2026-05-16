@@ -3,6 +3,7 @@ import requests
 import folium
 from streamlit_folium import st_folium
 from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -30,13 +31,13 @@ st.markdown("""
     .subtitle { font-size: 1.2rem; color: #4a5568; margin-top: -0.5rem; margin-bottom: 2rem; }
     .section-header { font-size: 1.8rem; font-weight: 700; color: #1a202c; margin-top: 2rem; margin-bottom: 1rem; border-left: 4px solid #2e8b57; padding-left: 1rem; }
     .footer { text-align: center; padding: 2rem; color: #718096; font-size: 0.8rem; border-top: 1px solid rgba(46,139,86,0.15); margin-top: 3rem; }
-    .leaderboard-item { padding: 0.75rem; margin: 0.5rem 0; background: #f8faf8; border-radius: 12px; }
+    .location-chip { background: #e8f5e9; padding: 0.5rem 1rem; border-radius: 50px; display: inline-block; margin: 0.25rem; }
 </style>
 """, unsafe_allow_html=True)
 
 # ===== HEADER =====
 st.markdown('<div class="main-title">Block-By-Block</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Precision environmental mapping + AI-powered action plans for every NYC block</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">Precision environmental mapping · Click map or use GPS · AI-powered action plans</div>', unsafe_allow_html=True)
 
 # ===== SIDEBAR =====
 st.sidebar.markdown("---")
@@ -44,7 +45,19 @@ st.sidebar.markdown("### 🌿 Block-By-Block")
 st.sidebar.markdown("*Hyper-local environmental intelligence*")
 st.sidebar.markdown("---")
 
-address = st.sidebar.text_input("📍 Enter NYC address:", placeholder="e.g., Times Square, Brooklyn Bridge")
+# ===== LOCATION INPUT METHODS =====
+st.sidebar.markdown("### 📍 Choose Location Method")
+
+location_method = st.sidebar.radio(
+    "Select input method:",
+    ["✏️ Type Address", "📍 Use My Current Location", "🖱️ Click on Map Below"]
+)
+
+# Initialize session state for coordinates
+if 'lat' not in st.session_state:
+    st.session_state.lat = 40.7831  # Default Manhattan
+    st.session_state.lon = -73.9712
+    st.session_state.location_method = None
 
 # Borough data
 boroughs = ["Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island"]
@@ -57,6 +70,30 @@ borough_data = {
 }
 
 # ===== FEATURE FUNCTIONS =====
+
+def reverse_geocode(lat, lon):
+    """Convert coordinates to address"""
+    try:
+        geocoder = Nominatim(user_agent="block_by_block", timeout=10)
+        location = geocoder.reverse(f"{lat}, {lon}")
+        if location:
+            return location.address
+    except:
+        pass
+    return f"{lat:.4f}, {lon:.4f}"
+
+def get_borough_from_coords(lat, lon):
+    """Determine borough from coordinates"""
+    if lat < 40.7:
+        return "Brooklyn"
+    elif lat > 40.85:
+        return "Bronx"
+    elif lon < -74.1:
+        return "Staten Island"
+    elif lon > -73.8:
+        return "Queens"
+    else:
+        return "Manhattan"
 
 def calculate_property_value_impact(tree_count, borough):
     base_value = 500000
@@ -158,7 +195,6 @@ def get_seasonal_recommendations():
 def check_heat_alert(heat_score):
     current_temp = 85 + (heat_score - 2.5) * 5
     is_heat_wave = heat_score >= 3.8
-    
     if is_heat_wave:
         cooling_centers = [
             "Local library (0.2 miles)",
@@ -168,305 +204,318 @@ def check_heat_alert(heat_score):
         return True, current_temp, cooling_centers
     return False, current_temp, []
 
-# ===== MAIN APP =====
-if address:
-    with st.spinner("Analyzing your block's environmental data..."):
-        geocoder = Nominatim(user_agent="block_by_block", timeout=30)
-        location = geocoder.geocode(f"{address}, New York City", timeout=30)
+# ===== LOCATION INPUT HANDLING =====
+
+# Method 1: Type Address
+if location_method == "✏️ Type Address":
+    address = st.sidebar.text_input("Enter NYC address:", placeholder="e.g., Times Square, Brooklyn Bridge")
+    if address:
+        with st.spinner("Finding location..."):
+            try:
+                geocoder = Nominatim(user_agent="block_by_block", timeout=30)
+                location = geocoder.geocode(f"{address}, New York City", timeout=30)
+                if location:
+                    st.session_state.lat = location.latitude
+                    st.session_state.lon = location.longitude
+                    st.session_state.location_method = "address"
+                    st.sidebar.success(f"📍 {location.address[:50]}...")
+                else:
+                    st.sidebar.error("Location not found")
+            except Exception as e:
+                st.sidebar.error("Geocoding service unavailable")
+
+# Method 2: Use My Current Location (GPS)
+elif location_method == "📍 Use My Current Location":
+    st.sidebar.info("🌐 Browser will ask for location permission")
+    if st.sidebar.button("📍 Get My Current Location", use_container_width=True):
+        # HTML/JS for geolocation
+        st.markdown("""
+        <script>
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('lat', lat);
+                    url.searchParams.set('lon', lon);
+                    window.location.href = url;
+                },
+                (error) => {
+                    alert("Location access denied or unavailable");
+                }
+            );
+        } else {
+            alert("Geolocation not supported by this browser");
+        }
+        </script>
+        """, unsafe_allow_html=True)
+    
+    # Check for URL parameters from geolocation
+    query_params = st.query_params
+    if 'lat' in query_params and 'lon' in query_params:
+        st.session_state.lat = float(query_params['lat'])
+        st.session_state.lon = float(query_params['lon'])
+        st.session_state.location_method = "gps"
+        st.sidebar.success(f"📍 GPS: {st.session_state.lat:.4f}, {st.session_state.lon:.4f}")
+
+# Method 3: Click on Map
+elif location_method == "🖱️ Click on Map Below":
+    st.sidebar.info("🖱️ Click anywhere on the map below to select a location")
+    st.session_state.location_method = "click"
+
+# ===== SELECTION MAP (for click method) =====
+if location_method == "🖱️ Click on Map Below":
+    st.subheader("🗺️ Click anywhere on this map to select your location")
+    
+    # Create a selection map
+    selection_map = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=12, tiles='CartoDB positron')
+    folium.Marker(
+        [st.session_state.lat, st.session_state.lon],
+        popup="Selected location",
+        icon=folium.Icon(color='green', icon='checkmark')
+    ).add_to(selection_map)
+    
+    # Display clickable map
+    map_data = st_folium(selection_map, width=700, height=450)
+    
+    # Update coordinates when clicked
+    if map_data and map_data.get('last_clicked'):
+        clicked_lat = map_data['last_clicked']['lat']
+        clicked_lon = map_data['last_clicked']['lng']
+        if clicked_lat and clicked_lon:
+            st.session_state.lat = clicked_lat
+            st.session_state.lon = clicked_lon
+            st.rerun()
+
+# ===== MAIN APP - DISPLAY DATA =====
+if st.session_state.lat and st.session_state.lon:
+    
+    lat = st.session_state.lat
+    lon = st.session_state.lon
+    
+    # Get borough and address
+    borough = get_borough_from_coords(lat, lon)
+    address_display = reverse_geocode(lat, lon)
+    
+    # Display location info
+    st.success(f"📍 Location: {address_display[:80]}...")
+    st.info(f"📌 Coordinates: {lat:.4f}, {lon:.4f} | Borough: {borough}")
+    
+    # Get base data
+    base_data = borough_data[borough]
+    tree_count = base_data["trees_per_sqkm"]
+    heat_score = base_data["heat"]
+    recycle_rate = base_data["recycle"]
+    transit_score = base_data["transit"]
+    
+    # Calculate derived metrics
+    property_gain, cooling_savings, premium = calculate_property_value_impact(tree_count, borough)
+    equity_score, missing_trees, equity_rating = calculate_tree_equity_score(tree_count, borough)
+    aqi, aqi_status = get_air_quality(borough)
+    season, seasonal_recs = get_seasonal_recommendations()
+    actions, impacts = generate_action_plan(tree_count, heat_score, recycle_rate, transit_score, equity_score, missing_trees)
+    heat_wave, current_temp, cooling_centers = check_heat_alert(heat_score)
+    
+    # HEAT WAVE ALERT
+    if heat_wave:
+        st.error(f"""
+        🚨 **HEAT WAVE EMERGENCY ALERT** 🚨
+        Temperature: {current_temp:.0f}°F | Heat vulnerability: {heat_score}/5.0
+        **Cooling centers:** {', '.join(cooling_centers)}
+        """)
+    
+    # METRICS ROW
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("🌳 Trees/sq km", tree_count)
+    with col2:
+        st.metric("🌡️ Heat Score", f"{heat_score}/5.0")
+    with col3:
+        st.metric("♻️ Recycling Rate", f"{recycle_rate}%")
+    with col4:
+        st.metric("🚌 Transit Score", f"{transit_score}/100")
+    
+    # TREE EQUITY SCORE
+    st.markdown("---")
+    st.subheader("⚖️ Tree Equity Score")
+    col_eq1, col_eq2 = st.columns(2)
+    with col_eq1:
+        st.metric("Equity Score", f"{equity_score:.0f}/100")
+        st.caption(f"Rating: {equity_rating}")
+    with col_eq2:
+        st.metric("Missing Trees", f"{missing_trees:.0f}", delta="needed for equity")
+    
+    # AIR QUALITY
+    st.subheader("💨 Air Quality Index")
+    st.metric("AQI", f"{aqi}/100", delta=aqi_status)
+    
+    # PROPERTY VALUE
+    st.subheader("💰 Property Value Impact")
+    col_val1, col_val2 = st.columns(2)
+    with col_val1:
+        st.metric("Added Home Value", f"+${property_gain:,.0f}", delta=f"{premium:.1f}% premium")
+    with col_val2:
+        st.metric("Annual Cooling Savings", f"${cooling_savings:.0f}")
+    
+    # ACTION PLAN
+    st.subheader("📋 Block Action Plan")
+    for action, impact in zip(actions, impacts):
+        st.markdown(f"- **{action}** → *{impact}*")
+    
+    # SEASONAL RECOMMENDATIONS
+    st.subheader(f"🍂 {season} Recommendations")
+    for rec in seasonal_recs:
+        st.markdown(f"- {rec}")
+    
+    # LEADERBOARD
+    st.subheader("🏆 Greenest Blocks in NYC")
+    leaderboard_data = [
+        ("Park Slope", "Brooklyn", 892),
+        ("Fort Greene", "Brooklyn", 734),
+        ("Upper West Side", "Manhattan", 712),
+        ("Forest Hills", "Queens", 654),
+        ("YOUR BLOCK", borough, tree_count)
+    ]
+    for block, boro, trees in sorted(leaderboard_data, key=lambda x: x[2], reverse=True):
+        if block == "YOUR BLOCK":
+            st.markdown(f"**📍 {block} ({boro}) — {trees} trees** ← You are here")
+        else:
+            st.markdown(f"{block} ({boro}) — {trees} trees")
+    
+    # NEIGHBORHOOD COMPARISON
+    with st.expander("📊 Compare with Another Neighborhood"):
+        compare_boro = st.selectbox("Select borough to compare:", boroughs)
+        if compare_boro:
+            comp_data = borough_data[compare_boro]
+            st.markdown(f"**Comparison: {borough} vs {compare_boro}**")
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                st.metric("Trees/sq km", f"{tree_count} vs {comp_data['trees_per_sqkm']}")
+                st.metric("Heat Score", f"{heat_score} vs {comp_data['heat']}")
+            with col_c2:
+                st.metric("Recycling", f"{recycle_rate}% vs {comp_data['recycle']}%")
+                st.metric("Transit", f"{transit_score} vs {comp_data['transit']}")
+    
+    # FULL ACTION PLAN BUTTON
+    if st.button("📄 Generate Complete Block Action Plan"):
+        st.success("""
+        **YOUR CUSTOM ACTION PLAN**
         
-        if not location:
-            st.error("Location not found. Try a specific NYC address.")
-            st.stop()
+        1. 🌳 Plant street trees (priority: highest)
+        2. 🏠 Apply for cool pavement pilot program
+        3. ♻️ Organize block composting orientation
+        4. 🚲 Attend community board transit meeting
+        5. 📢 Share your Tree Equity Score with local representatives
         
-        lat = location.latitude
-        lon = location.longitude
+        **Estimated 5-year impact:** 8°F cooler, $50k property value increase
+        """)
+    
+    # DATA EXPORT
+    with st.expander("🔌 Data Export (JSON/CSV)"):
+        export_data = {
+            "location": address_display,
+            "borough": borough,
+            "coordinates": {"lat": lat, "lon": lon},
+            "trees_per_sqkm": tree_count,
+            "heat_score": heat_score,
+            "recycling_rate": recycle_rate,
+            "transit_score": transit_score,
+            "air_quality": aqi,
+            "equity_score": equity_score,
+            "timestamp": datetime.now().isoformat()
+        }
         
-        # Determine borough
-        borough = "Manhattan"
-        for b in boroughs:
-            if b in location.address:
-                borough = b
-                break
+        col_api1, col_api2 = st.columns(2)
+        with col_api1:
+            st.download_button(
+                label="📥 Download as JSON",
+                data=json.dumps(export_data, indent=2),
+                file_name=f"block_data_{borough}.json",
+                mime="application/json"
+            )
+        with col_api2:
+            csv_data = "Metric,Value\n" + "\n".join([f"{k},{v}" for k, v in export_data.items() if not isinstance(v, dict)])
+            st.download_button(
+                label="📊 Download as CSV",
+                data=csv_data,
+                file_name=f"block_data_{borough}.csv",
+                mime="text/csv"
+            )
+    
+    # INTERACTIVE MAP WITH HEAT CIRCLES
+    with st.expander("🗺️ View Map - Heat Vulnerability Zones", expanded=True):
+        m = folium.Map(location=[lat, lon], zoom_start=15, tiles='CartoDB positron')
         
-        # Get base data
-        base_data = borough_data[borough]
-        tree_count = base_data["trees_per_sqkm"]
-        heat_score = base_data["heat"]
-        recycle_rate = base_data["recycle"]
-        transit_score = base_data["transit"]
+        folium.Marker(
+            [lat, lon], 
+            popup=f"{borough}<br>Heat Score: {heat_score}/5.0<br>Trees: {tree_count}/sq km", 
+            icon=folium.Icon(color='red' if heat_score >= 3.5 else 'green', icon='info-sign')
+        ).add_to(m)
         
-        # Calculate derived metrics
-        property_gain, cooling_savings, premium = calculate_property_value_impact(tree_count, borough)
-        equity_score, missing_trees, equity_rating = calculate_tree_equity_score(tree_count, borough)
-        aqi, aqi_status = get_air_quality(borough)
-        season, seasonal_recs = get_seasonal_recommendations()
-        actions, impacts = generate_action_plan(tree_count, heat_score, recycle_rate, transit_score, equity_score, missing_trees)
-        heat_wave, current_temp, cooling_centers = check_heat_alert(heat_score)
+        folium.Circle(
+            radius=500, location=[lat, lon], popup='500m search radius',
+            color='green', weight=2, fill=True, fill_color='lightgreen', fill_opacity=0.15
+        ).add_to(m)
         
-        # Display location
-        st.success(f"✅ Location: {location.address[:80]}... | {borough} Borough")
-        st.info(f"📌 Coordinates: {lat:.4f}, {lon:.4f}")
-        
-        # FEATURE 6: HEAT WAVE ALERT
-        if heat_wave:
-            st.error(f"""
-            🚨 **HEAT WAVE EMERGENCY ALERT** 🚨
-            
-            Current temperature: {current_temp:.0f}°F | Heat vulnerability: {heat_score}/5.0
-            
-            **Cooling centers near you:**
-            {chr(10).join(cooling_centers)}
-            
-            💧 Please check on elderly neighbors and keep pets hydrated.
-            """)
-        
-        # METRICS ROW
-        st.markdown("---")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("🌳 Trees/sq km", tree_count)
-        with col2:
-            st.metric("🌡️ Heat Score", f"{heat_score}/5.0")
-        with col3:
-            st.metric("♻️ Recycling Rate", f"{recycle_rate}%")
-        with col4:
-            st.metric("🚌 Transit Score", f"{transit_score}/100")
-        
-        # FEATURE 4: TREE EQUITY SCORE
-        st.markdown("---")
-        st.subheader("⚖️ Tree Equity Score")
-        col_eq1, col_eq2 = st.columns(2)
-        with col_eq1:
-            st.metric("Equity Score", f"{equity_score:.0f}/100")
-            st.caption(f"Rating: {equity_rating}")
-        with col_eq2:
-            st.metric("Missing Trees", f"{missing_trees:.0f}", delta="needed for equity")
-        
-        # FEATURE 8: AIR QUALITY
-        st.subheader("💨 Air Quality Index")
-        st.metric("AQI", f"{aqi}/100", delta=aqi_status)
-        
-        # FEATURE 3: PROPERTY VALUE IMPACT
-        st.subheader("💰 Property Value Impact")
-        col_val1, col_val2 = st.columns(2)
-        with col_val1:
-            st.metric("Added Home Value", f"+${property_gain:,.0f}", delta=f"{premium:.1f}% premium")
-        with col_val2:
-            st.metric("Annual Cooling Savings", f"${cooling_savings:.0f}")
-        
-        # FEATURE 9: ACTION PLAN
-        st.subheader("📋 Block Action Plan")
-        for action, impact in zip(actions, impacts):
-            st.markdown(f"- **{action}** → *{impact}*")
-        
-        # FEATURE 10: SEASONAL RECOMMENDATIONS
-        st.subheader(f"🍂 {season} Recommendations")
-        for rec in seasonal_recs:
-            st.markdown(f"- {rec}")
-        
-        # FEATURE 5: BLOCK LEADERBOARD
-        st.subheader("🏆 Greenest Blocks in NYC")
-        leaderboard_data = [
-            ("Park Slope", "Brooklyn", 892),
-            ("Fort Greene", "Brooklyn", 734),
-            ("Upper West Side", "Manhattan", 712),
-            ("Forest Hills", "Queens", 654),
-            ("YOUR BLOCK", borough, tree_count)
-        ]
-        for block, boro, trees in sorted(leaderboard_data, key=lambda x: x[2], reverse=True):
-            if block == "YOUR BLOCK":
-                st.markdown(f"**📍 {block} ({boro}) — {trees} trees** ← You are here")
-            else:
-                st.markdown(f"{block} ({boro}) — {trees} trees")
-        
-        # FEATURE 1: NEIGHBORHOOD COMPARISON
-        with st.expander("📊 Compare with Another Neighborhood"):
-            compare_boro = st.selectbox("Select borough to compare:", boroughs)
-            if compare_boro:
-                comp_data = borough_data[compare_boro]
-                st.markdown(f"**Comparison: {borough} vs {compare_boro}**")
-                col_c1, col_c2 = st.columns(2)
-                with col_c1:
-                    st.metric("Trees/sq km", f"{tree_count} vs {comp_data['trees_per_sqkm']}")
-                    st.metric("Heat Score", f"{heat_score} vs {comp_data['heat']}")
-                with col_c2:
-                    st.metric("Recycling", f"{recycle_rate}% vs {comp_data['recycle']}%")
-                    st.metric("Transit", f"{transit_score} vs {comp_data['transit']}")
-        
-        # FEATURE 2: FULL ACTION PLAN BUTTON
-        if st.button("📄 Generate Complete Block Action Plan"):
-            st.markdown("---")
-            st.success("""
-            **YOUR CUSTOM ACTION PLAN**
-            
-            1. 🌳 Plant street trees (priority: highest)
-            2. 🏠 Apply for cool pavement pilot program
-            3. ♻️ Organize block composting orientation
-            4. 🚲 Attend community board transit meeting
-            5. 📢 Share your Tree Equity Score with local representatives
-            
-            **Estimated 5-year impact:** 8°F cooler, $50k property value increase
-            """)
-        
-        # FEATURE 7: DATA EXPORT
-        with st.expander("🔌 Data Export (JSON/CSV)"):
-            st.markdown("**Download your block's data:**")
-            
-            export_data = {
-                "location": address,
-                "borough": borough,
-                "coordinates": {"lat": lat, "lon": lon},
-                "trees_per_sqkm": tree_count,
-                "heat_score": heat_score,
-                "recycling_rate": recycle_rate,
-                "transit_score": transit_score,
-                "air_quality": aqi,
-                "equity_score": equity_score,
-                "timestamp": datetime.now().isoformat()
-            }
-            
-            col_api1, col_api2 = st.columns(2)
-            with col_api1:
-                st.download_button(
-                    label="📥 Download as JSON",
-                    data=json.dumps(export_data, indent=2),
-                    file_name=f"block_data_{borough}.json",
-                    mime="application/json"
-                )
-            with col_api2:
-                csv_data = "Metric,Value\n"
-                for k, v in export_data.items():
-                    if not isinstance(v, dict):
-                        csv_data += f"{k},{v}\n"
-                st.download_button(
-                    label="📊 Download as CSV",
-                    data=csv_data,
-                    file_name=f"block_data_{borough}.csv",
-                    mime="text/csv"
-                )
-        
-        # MAP
-        # MAP WITH HEAT CIRCLES
-        with st.expander("🗺️ View Map - Heat Vulnerability Zones"):
-            # Create map
-            m = folium.Map(location=[lat, lon], zoom_start=15, tiles='CartoDB positron')
-            
-            # Add marker for your location
-            folium.Marker(
-                [lat, lon], 
-                popup=f"{borough}<br>Heat Score: {heat_score}/5.0<br>Trees: {tree_count}/sq km", 
-                icon=folium.Icon(color='red' if heat_score >= 3.5 else 'green', icon='info-sign')
-            ).add_to(m)
-            
-            # Add 500m search radius circle (green)
+        # RED HEAT CIRCLES (only for high heat areas)
+        if heat_score >= 3.5:
             folium.Circle(
-                radius=500,
-                location=[lat, lon],
-                popup='500m search radius',
-                color='green',
-                weight=2,
-                fill=True,
-                fill_color='lightgreen',
-                fill_opacity=0.15
+                radius=250, location=[lat, lon], popup=f'🔥 Heat Zone: {heat_score}/5.0',
+                color='darkred', weight=2, fill=True, fill_color='red', fill_opacity=0.4
             ).add_to(m)
             
-            # ===== RED HEAT CIRCLES - ONLY IF HEAT SCORE IS HIGH =====
-            if heat_score >= 3.5:
-                # Main heat zone at location
+            offsets = [(0.002, 0.002), (0.002, -0.002), (-0.002, 0.002), (-0.002, -0.002)]
+            for dlat, dlon in offsets:
                 folium.Circle(
-                    radius=250,
-                    location=[lat, lon],
-                    popup=f'🔥 Heat Vulnerability Zone<br>Score: {heat_score}/5.0',
-                    color='darkred',
-                    weight=2,
-                    fill=True,
-                    fill_color='red',
-                    fill_opacity=0.4
-                ).add_to(m)
-                
-                # Secondary heat zones (grid around location)
-                offsets = [
-                    (0.002, 0.002), (0.002, -0.002), (-0.002, 0.002), (-0.002, -0.002),
-                    (0.003, 0), (-0.003, 0), (0, 0.003), (0, -0.003)
-                ]
-                
-                for i, (dlat, dlon) in enumerate(offsets):
-                    folium.Circle(
-                        radius=180,
-                        location=[lat + dlat, lon + dlon],
-                        popup=f'Urban heat island effect',
-                        color='orange' if i < 4 else 'darkorange',
-                        weight=1.5,
-                        fill=True,
-                        fill_color='orange',
-                        fill_opacity=0.3
-                    ).add_to(m)
-                
-                # Add heat legend
-                legend_html = '''
-                <div style="position: fixed; bottom: 30px; left: 30px; z-index: 1000; background-color: white; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 12px;">
-                    <b>🌡️ Heat Risk Legend</b><br>
-                    <span style="color: darkred;">●</span> High (3.8-4.1)<br>
-                    <span style="color: red;">●</span> Moderate-High (3.5-3.8)<br>
-                    <span style="color: orange;">●</span> Urban heat island effect
-                </div>
-                '''
-                m.get_root().html.add_child(folium.Element(legend_html))
-            else:
-                # Low heat area - show info message on map
-                folium.Circle(
-                    radius=200,
-                    location=[lat, lon],
-                    popup=f'✅ Low heat vulnerability<br>Score: {heat_score}/5.0',
-                    color='blue',
-                    weight=1,
-                    fill=True,
-                    fill_color='lightblue',
-                    fill_opacity=0.2
+                    radius=180, location=[lat + dlat, lon + dlon],
+                    popup='Urban heat island', color='orange', weight=1.5,
+                    fill=True, fill_color='orange', fill_opacity=0.3
                 ).add_to(m)
             
-            # Add tree canopy suggestion (text overlay)
-            if tree_count < 300:
-                folium.Marker(
-                    [lat + 0.003, lon + 0.003],
-                    popup='💡 Tip: Plant more trees here to reduce heat',
-                    icon=folium.Icon(color='lightgreen', icon='leaf', prefix='fa')
-                ).add_to(m)
-            
-            st_folium(m, width=700, height=500)
+            legend_html = '''
+            <div style="position: fixed; bottom: 30px; left: 30px; background: white; padding: 10px; border-radius: 8px; border: 1px solid #ccc;">
+                <b>🌡️ Heat Risk</b><br>
+                <span style="color: darkred;">●</span> High (3.8-4.1)<br>
+                <span style="color: red;">●</span> Moderate-High (3.5-3.8)
+            </div>
+            '''
+            m.get_root().html.add_child(folium.Element(legend_html))
+        
+        st_folium(m, width=700, height=450)
 
 else:
-    st.info("👈 Enter an NYC address in the sidebar to get started!")
+    st.info("👈 Select a location method in the sidebar to get started!")
     
     st.markdown("""
-    ### 🌟 10 Powerful Features (All Free):
+    ### 🌟 Three Ways to Find Your Block:
     
-    | # | Feature | What It Does |
-    |----|---------|--------------|
-    | 1 | 📊 Neighborhood Comparison | Compare 2 blocks side-by-side |
-    | 2 | 📋 Action Plan Generator | Custom sustainability roadmap |
-    | 3 | 💰 Property Value Calculator | Show tree ROI for homeowners |
-    | 4 | ⚖️ Tree Equity Score | Compare to wealthy neighborhoods |
-    | 5 | 🏆 Block Leaderboard | Rank against NYC blocks |
-    | 6 | 🚨 Heat Wave Alerts | Life-saving emergency notifications |
-    | 7 | 🔌 Data Export (JSON/CSV) | Download block data |
-    | 8 | 💨 Air Quality Index | Real-time pollution levels |
-    | 9 | 🎯 Seasonal Recommendations | Timely actions for each season |
-    | 10 | 🗺️ Interactive Map | Visualize your block's data |
+    | Method | How It Works |
+    |--------|--------------|
+    | ✏️ **Type Address** | Enter any NYC address or landmark |
+    | 📍 **Use My Location** | Browser GPS - finds your current block |
+    | 🖱️ **Click on Map** | Click anywhere on the map below |
     
-    ### Try these addresses:
-    - Times Square, Manhattan
-    - Prospect Park, Brooklyn
-    - Flushing Meadows, Queens
-    - Yankee Stadium, Bronx
+    ### 🎯 Try These Features:
+    - 🔴 **Red heat circles** appear for vulnerable areas
+    - 📊 **Compare neighborhoods** side-by-side
+    - 💰 **Calculate property value impact** of trees
+    - 📥 **Download data** as JSON or CSV
+    - 🌿 **Get seasonal action plans**
     """)
+    
+    # Preview map for click method
+    st.subheader("🖱️ Or click on this map to start")
+    preview_map = folium.Map(location=[40.7580, -73.9855], zoom_start=12, tiles='CartoDB positron')
+    folium.Marker([40.7580, -73.9855], popup="Times Square", icon=folium.Icon(color='green')).add_to(preview_map)
+    st_folium(preview_map, width=700, height=400)
 
 # ===== FOOTER =====
 st.markdown("---")
 st.markdown("""
 <div class="footer">
-    <strong>Block-By-Block</strong> · 10 features · 100% free · Environmental intelligence for every block<br>
-    Data: NYC Open Data · Heat Vulnerability Index · EPA Air Quality<br>
-    © 2025 Block-By-Block
+    <strong>Block-By-Block</strong> · 3 location methods · 10 features · 100% free<br>
+    📍 GPS | 🖱️ Click Map | ✏️ Type Address · Data: NYC Open Data · Heat Vulnerability Index
 </div>
 """, unsafe_allow_html=True)
