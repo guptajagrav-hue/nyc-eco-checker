@@ -346,11 +346,94 @@ if address:
                 )
         
         # MAP
-        with st.expander("🗺️ View Map"):
-            m = folium.Map(location=[lat, lon], zoom_start=14, tiles='CartoDB positron')
-            folium.Marker([lat, lon], popup=f"{borough}", icon=folium.Icon(color='green', icon='leaf')).add_to(m)
-            folium.Circle(radius=500, location=[lat, lon], color='green', fill=True, fill_opacity=0.1).add_to(m)
-            st_folium(m, width=600, height=400)
+        # MAP WITH HEAT CIRCLES
+        with st.expander("🗺️ View Map - Heat Vulnerability Zones"):
+            # Create map
+            m = folium.Map(location=[lat, lon], zoom_start=15, tiles='CartoDB positron')
+            
+            # Add marker for your location
+            folium.Marker(
+                [lat, lon], 
+                popup=f"{borough}<br>Heat Score: {heat_score}/5.0<br>Trees: {tree_count}/sq km", 
+                icon=folium.Icon(color='red' if heat_score >= 3.5 else 'green', icon='info-sign')
+            ).add_to(m)
+            
+            # Add 500m search radius circle (green)
+            folium.Circle(
+                radius=500,
+                location=[lat, lon],
+                popup='500m search radius',
+                color='green',
+                weight=2,
+                fill=True,
+                fill_color='lightgreen',
+                fill_opacity=0.15
+            ).add_to(m)
+            
+            # ===== RED HEAT CIRCLES - ONLY IF HEAT SCORE IS HIGH =====
+            if heat_score >= 3.5:
+                # Main heat zone at location
+                folium.Circle(
+                    radius=250,
+                    location=[lat, lon],
+                    popup=f'🔥 Heat Vulnerability Zone<br>Score: {heat_score}/5.0',
+                    color='darkred',
+                    weight=2,
+                    fill=True,
+                    fill_color='red',
+                    fill_opacity=0.4
+                ).add_to(m)
+                
+                # Secondary heat zones (grid around location)
+                offsets = [
+                    (0.002, 0.002), (0.002, -0.002), (-0.002, 0.002), (-0.002, -0.002),
+                    (0.003, 0), (-0.003, 0), (0, 0.003), (0, -0.003)
+                ]
+                
+                for i, (dlat, dlon) in enumerate(offsets):
+                    folium.Circle(
+                        radius=180,
+                        location=[lat + dlat, lon + dlon],
+                        popup=f'Urban heat island effect',
+                        color='orange' if i < 4 else 'darkorange',
+                        weight=1.5,
+                        fill=True,
+                        fill_color='orange',
+                        fill_opacity=0.3
+                    ).add_to(m)
+                
+                # Add heat legend
+                legend_html = '''
+                <div style="position: fixed; bottom: 30px; left: 30px; z-index: 1000; background-color: white; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 12px;">
+                    <b>🌡️ Heat Risk Legend</b><br>
+                    <span style="color: darkred;">●</span> High (3.8-4.1)<br>
+                    <span style="color: red;">●</span> Moderate-High (3.5-3.8)<br>
+                    <span style="color: orange;">●</span> Urban heat island effect
+                </div>
+                '''
+                m.get_root().html.add_child(folium.Element(legend_html))
+            else:
+                # Low heat area - show info message on map
+                folium.Circle(
+                    radius=200,
+                    location=[lat, lon],
+                    popup=f'✅ Low heat vulnerability<br>Score: {heat_score}/5.0',
+                    color='blue',
+                    weight=1,
+                    fill=True,
+                    fill_color='lightblue',
+                    fill_opacity=0.2
+                ).add_to(m)
+            
+            # Add tree canopy suggestion (text overlay)
+            if tree_count < 300:
+                folium.Marker(
+                    [lat + 0.003, lon + 0.003],
+                    popup='💡 Tip: Plant more trees here to reduce heat',
+                    icon=folium.Icon(color='lightgreen', icon='leaf', prefix='fa')
+                ).add_to(m)
+            
+            st_folium(m, width=700, height=500)
 
 else:
     st.info("👈 Enter an NYC address in the sidebar to get started!")
