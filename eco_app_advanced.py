@@ -31,13 +31,13 @@ st.markdown("""
     .subtitle { font-size: 1.2rem; color: #4a5568; margin-top: -0.5rem; margin-bottom: 2rem; }
     .section-header { font-size: 1.8rem; font-weight: 700; color: #1a202c; margin-top: 2rem; margin-bottom: 1rem; border-left: 4px solid #2e8b57; padding-left: 1rem; }
     .footer { text-align: center; padding: 2rem; color: #718096; font-size: 0.8rem; border-top: 1px solid rgba(46,139,86,0.15); margin-top: 3rem; }
-    .location-chip { background: #e8f5e9; padding: 0.5rem 1rem; border-radius: 50px; display: inline-block; margin: 0.25rem; }
+    .warning-box { background: #fff5f0; border-left: 4px solid #e53e3e; padding: 1rem; border-radius: 8px; margin: 1rem 0; }
 </style>
 """, unsafe_allow_html=True)
 
 # ===== HEADER =====
 st.markdown('<div class="main-title">Block-By-Block</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Precision environmental mapping · Click map or use GPS · AI-powered action plans</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">Precision environmental mapping for NYC blocks · Click map or use GPS</div>', unsafe_allow_html=True)
 
 # ===== SIDEBAR =====
 st.sidebar.markdown("---")
@@ -53,13 +53,65 @@ location_method = st.sidebar.radio(
     ["✏️ Type Address", "📍 Use My Current Location", "🖱️ Click on Map Below"]
 )
 
-# Initialize session state for coordinates
+# Initialize session state
 if 'lat' not in st.session_state:
-    st.session_state.lat = 40.7831  # Default Manhattan
+    st.session_state.lat = 40.7831
     st.session_state.lon = -73.9712
     st.session_state.location_method = None
 
-# Borough data
+# ===== NYC BOUNDARY CHECK =====
+def is_in_nyc(lat, lon):
+    """Check if coordinates are within NYC's five boroughs"""
+    nyc_bounds = {
+        "lat_min": 40.4774,
+        "lat_max": 40.9176,
+        "lon_min": -74.2591,
+        "lon_max": -73.7004
+    }
+    
+    if not (nyc_bounds["lat_min"] <= lat <= nyc_bounds["lat_max"] and
+            nyc_bounds["lon_min"] <= lon <= nyc_bounds["lon_max"]):
+        return False
+    
+    # Exclude NJ areas
+    if lat < 40.7 and lon < -74.15:
+        return False
+    
+    # Exclude Long Island areas
+    if lat < 40.7 and lon > -73.7:
+        return False
+    
+    # Exclude Westchester
+    if lat > 40.9:
+        return False
+    
+    return True
+
+def get_borough_from_coords(lat, lon):
+    """Get borough from coordinates - returns None if outside NYC"""
+    if not is_in_nyc(lat, lon):
+        return None
+    
+    if lat < 40.7:
+        return "Staten Island" if lon < -74.05 else "Brooklyn"
+    elif lat > 40.85:
+        return "Bronx"
+    elif lon > -73.9:
+        return "Queens"
+    else:
+        return "Manhattan"
+
+def reverse_geocode(lat, lon):
+    try:
+        geocoder = Nominatim(user_agent="block_by_block", timeout=10)
+        location = geocoder.reverse(f"{lat}, {lon}")
+        if location:
+            return location.address
+    except:
+        pass
+    return f"{lat:.4f}, {lon:.4f}"
+
+# Borough data (only for NYC)
 boroughs = ["Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island"]
 borough_data = {
     "Manhattan": {"center": (40.7831, -73.9712), "heat": 3.8, "recycle": 23, "transit": 85, "trees_per_sqkm": 350, "air_quality": 62},
@@ -70,31 +122,6 @@ borough_data = {
 }
 
 # ===== FEATURE FUNCTIONS =====
-
-def reverse_geocode(lat, lon):
-    """Convert coordinates to address"""
-    try:
-        geocoder = Nominatim(user_agent="block_by_block", timeout=10)
-        location = geocoder.reverse(f"{lat}, {lon}")
-        if location:
-            return location.address
-    except:
-        pass
-    return f"{lat:.4f}, {lon:.4f}"
-
-def get_borough_from_coords(lat, lon):
-    """Determine borough from coordinates"""
-    if lat < 40.7:
-        return "Brooklyn"
-    elif lat > 40.85:
-        return "Bronx"
-    elif lon < -74.1:
-        return "Staten Island"
-    elif lon > -73.8:
-        return "Queens"
-    else:
-        return "Manhattan"
-
 def calculate_property_value_impact(tree_count, borough):
     base_value = 500000
     tree_premium = min(20, tree_count / 20)
@@ -228,7 +255,6 @@ if location_method == "✏️ Type Address":
 elif location_method == "📍 Use My Current Location":
     st.sidebar.info("🌐 Browser will ask for location permission")
     if st.sidebar.button("📍 Get My Current Location", use_container_width=True):
-        # HTML/JS for geolocation
         st.markdown("""
         <script>
         if (navigator.geolocation) {
@@ -241,45 +267,30 @@ elif location_method == "📍 Use My Current Location":
                     url.searchParams.set('lon', lon);
                     window.location.href = url;
                 },
-                (error) => {
-                    alert("Location access denied or unavailable");
-                }
+                (error) => { alert("Location access denied"); }
             );
-        } else {
-            alert("Geolocation not supported by this browser");
-        }
+        } else { alert("Geolocation not supported"); }
         </script>
         """, unsafe_allow_html=True)
     
-    # Check for URL parameters from geolocation
     query_params = st.query_params
     if 'lat' in query_params and 'lon' in query_params:
         st.session_state.lat = float(query_params['lat'])
         st.session_state.lon = float(query_params['lon'])
         st.session_state.location_method = "gps"
-        st.sidebar.success(f"📍 GPS: {st.session_state.lat:.4f}, {st.session_state.lon:.4f}")
 
 # Method 3: Click on Map
 elif location_method == "🖱️ Click on Map Below":
-    st.sidebar.info("🖱️ Click anywhere on the map below to select a location")
+    st.sidebar.info("🖱️ Click anywhere on the map below")
     st.session_state.location_method = "click"
 
-# ===== SELECTION MAP (for click method) =====
+# ===== SELECTION MAP =====
 if location_method == "🖱️ Click on Map Below":
     st.subheader("🗺️ Click anywhere on this map to select your location")
-    
-    # Create a selection map
     selection_map = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=12, tiles='CartoDB positron')
-    folium.Marker(
-        [st.session_state.lat, st.session_state.lon],
-        popup="Selected location",
-        icon=folium.Icon(color='green', icon='checkmark')
-    ).add_to(selection_map)
-    
-    # Display clickable map
+    folium.Marker([st.session_state.lat, st.session_state.lon], popup="Selected", icon=folium.Icon(color='green')).add_to(selection_map)
     map_data = st_folium(selection_map, width=700, height=450)
     
-    # Update coordinates when clicked
     if map_data and map_data.get('last_clicked'):
         clicked_lat = map_data['last_clicked']['lat']
         clicked_lon = map_data['last_clicked']['lng']
@@ -290,16 +301,37 @@ if location_method == "🖱️ Click on Map Below":
 
 # ===== MAIN APP - DISPLAY DATA =====
 if st.session_state.lat and st.session_state.lon:
-    
     lat = st.session_state.lat
     lon = st.session_state.lon
     
-    # Get borough and address
+    # CHECK IF IN NYC - THIS IS THE CRITICAL FIX!
+    in_nyc = is_in_nyc(lat, lon)
+    
+    if not in_nyc:
+        # Show BIG RED WARNING for outside NYC
+        st.markdown(f"""
+        <div class="warning-box">
+            <b>🚫 OUTSIDE NYC DATA AREA</b><br><br>
+            The location <b>({lat:.4f}, {lon:.4f})</b> is outside New York City's five boroughs.<br><br>
+            Block-By-Block only provides environmental data for:<br>
+            • Manhattan &nbsp; • Brooklyn &nbsp; • Queens &nbsp; • Bronx &nbsp; • Staten Island<br><br>
+            Please select a location within NYC limits.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Still show a simple map so user can see where they clicked
+        st.subheader("🗺️ Your Selected Location")
+        m = folium.Map(location=[lat, lon], zoom_start=12, tiles='CartoDB positron')
+        folium.Marker([lat, lon], popup="Outside NYC", icon=folium.Icon(color='red', icon='warning')).add_to(m)
+        st_folium(m, width=700, height=400)
+        
+        st.stop()  # Stop execution - don't show any data
+    
+    # If we get here, location IS in NYC
     borough = get_borough_from_coords(lat, lon)
     address_display = reverse_geocode(lat, lon)
     
-    # Display location info
-    st.success(f"📍 Location: {address_display[:80]}...")
+    st.success(f"✅ Location within NYC: {address_display[:80]}...")
     st.info(f"📌 Coordinates: {lat:.4f}, {lon:.4f} | Borough: {borough}")
     
     # Get base data
@@ -319,14 +351,9 @@ if st.session_state.lat and st.session_state.lon:
     
     # HEAT WAVE ALERT
     if heat_wave:
-        st.error(f"""
-        🚨 **HEAT WAVE EMERGENCY ALERT** 🚨
-        Temperature: {current_temp:.0f}°F | Heat vulnerability: {heat_score}/5.0
-        **Cooling centers:** {', '.join(cooling_centers)}
-        """)
+        st.error(f"🚨 **HEAT WAVE ALERT** | {current_temp:.0f}°F | Cooling centers: {', '.join(cooling_centers)}")
     
     # METRICS ROW
-    st.markdown("---")
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("🌳 Trees/sq km", tree_count)
@@ -338,7 +365,6 @@ if st.session_state.lat and st.session_state.lon:
         st.metric("🚌 Transit Score", f"{transit_score}/100")
     
     # TREE EQUITY SCORE
-    st.markdown("---")
     st.subheader("⚖️ Tree Equity Score")
     col_eq1, col_eq2 = st.columns(2)
     with col_eq1:
@@ -398,7 +424,7 @@ if st.session_state.lat and st.session_state.lon:
                 st.metric("Recycling", f"{recycle_rate}% vs {comp_data['recycle']}%")
                 st.metric("Transit", f"{transit_score} vs {comp_data['transit']}")
     
-    # FULL ACTION PLAN BUTTON
+    # ACTION PLAN BUTTON
     if st.button("📄 Generate Complete Block Action Plan"):
         st.success("""
         **YOUR CUSTOM ACTION PLAN**
@@ -444,44 +470,24 @@ if st.session_state.lat and st.session_state.lon:
                 mime="text/csv"
             )
     
-    # INTERACTIVE MAP WITH HEAT CIRCLES
-    with st.expander("🗺️ View Map - Heat Vulnerability Zones", expanded=True):
+    # MAP WITH HEAT CIRCLES
+    with st.expander("🗺️ Heat Vulnerability Map", expanded=True):
         m = folium.Map(location=[lat, lon], zoom_start=15, tiles='CartoDB positron')
         
-        folium.Marker(
-            [lat, lon], 
-            popup=f"{borough}<br>Heat Score: {heat_score}/5.0<br>Trees: {tree_count}/sq km", 
-            icon=folium.Icon(color='red' if heat_score >= 3.5 else 'green', icon='info-sign')
-        ).add_to(m)
+        folium.Marker([lat, lon], popup=f"{borough}<br>Heat: {heat_score}/5.0", 
+                      icon=folium.Icon(color='red' if heat_score >= 3.5 else 'green')).add_to(m)
         
-        folium.Circle(
-            radius=500, location=[lat, lon], popup='500m search radius',
-            color='green', weight=2, fill=True, fill_color='lightgreen', fill_opacity=0.15
-        ).add_to(m)
+        folium.Circle(radius=500, location=[lat, lon], color='green', weight=2, 
+                      fill=True, fill_color='lightgreen', fill_opacity=0.15).add_to(m)
         
-        # RED HEAT CIRCLES (only for high heat areas)
         if heat_score >= 3.5:
-            folium.Circle(
-                radius=250, location=[lat, lon], popup=f'🔥 Heat Zone: {heat_score}/5.0',
-                color='darkred', weight=2, fill=True, fill_color='red', fill_opacity=0.4
-            ).add_to(m)
+            folium.Circle(radius=250, location=[lat, lon], color='darkred', weight=2,
+                          fill=True, fill_color='red', fill_opacity=0.4).add_to(m)
             
             offsets = [(0.002, 0.002), (0.002, -0.002), (-0.002, 0.002), (-0.002, -0.002)]
             for dlat, dlon in offsets:
-                folium.Circle(
-                    radius=180, location=[lat + dlat, lon + dlon],
-                    popup='Urban heat island', color='orange', weight=1.5,
-                    fill=True, fill_color='orange', fill_opacity=0.3
-                ).add_to(m)
-            
-            legend_html = '''
-            <div style="position: fixed; bottom: 30px; left: 30px; background: white; padding: 10px; border-radius: 8px; border: 1px solid #ccc;">
-                <b>🌡️ Heat Risk</b><br>
-                <span style="color: darkred;">●</span> High (3.8-4.1)<br>
-                <span style="color: red;">●</span> Moderate-High (3.5-3.8)
-            </div>
-            '''
-            m.get_root().html.add_child(folium.Element(legend_html))
+                folium.Circle(radius=180, location=[lat + dlat, lon + dlon], color='orange',
+                              fill=True, fill_color='orange', fill_opacity=0.3).add_to(m)
         
         st_folium(m, width=700, height=450)
 
@@ -489,25 +495,26 @@ else:
     st.info("👈 Select a location method in the sidebar to get started!")
     
     st.markdown("""
+    ### 🗽 Block-By-Block provides data for NYC's five boroughs:
+    
+    | Borough | Heat Score | Trees/sq km | Transit Score |
+    |---------|------------|-------------|---------------|
+    | Manhattan | 3.8/5.0 🔥 | 350 | 85/100 🚇 |
+    | Brooklyn | 3.2/5.0 | 420 | 70/100 🚌 |
+    | Queens | 3.0/5.0 | 380 | 60/100 |
+    | Bronx | 4.1/5.0 🔥🔥 | 310 | 55/100 |
+    | Staten Island | 2.5/5.0 ✅ | 450 | 45/100 |
+    
     ### 🌟 Three Ways to Find Your Block:
     
     | Method | How It Works |
     |--------|--------------|
     | ✏️ **Type Address** | Enter any NYC address or landmark |
     | 📍 **Use My Location** | Browser GPS - finds your current block |
-    | 🖱️ **Click on Map** | Click anywhere on the map below |
-    
-    ### 🎯 Try These Features:
-    - 🔴 **Red heat circles** appear for vulnerable areas
-    - 📊 **Compare neighborhoods** side-by-side
-    - 💰 **Calculate property value impact** of trees
-    - 📥 **Download data** as JSON or CSV
-    - 🌿 **Get seasonal action plans**
+    | 🖱️ **Click on Map** | Click anywhere on NYC to select |
     """)
     
-    # Preview map for click method
-    st.subheader("🖱️ Or click on this map to start")
-    preview_map = folium.Map(location=[40.7580, -73.9855], zoom_start=12, tiles='CartoDB positron')
+    preview_map = folium.Map(location=[40.7580, -73.9855], zoom_start=11, tiles='CartoDB positron')
     folium.Marker([40.7580, -73.9855], popup="Times Square", icon=folium.Icon(color='green')).add_to(preview_map)
     st_folium(preview_map, width=700, height=400)
 
@@ -515,7 +522,7 @@ else:
 st.markdown("---")
 st.markdown("""
 <div class="footer">
-    <strong>Block-By-Block</strong> · 3 location methods · 10 features · 100% free<br>
-    📍 GPS | 🖱️ Click Map | ✏️ Type Address · Data: NYC Open Data · Heat Vulnerability Index
+    <strong>Block-By-Block</strong> · NYC only · 10 features · 100% free<br>
+    Data: NYC Open Data · Heat Vulnerability Index · EPA Air Quality
 </div>
 """, unsafe_allow_html=True)
