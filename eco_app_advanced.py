@@ -251,100 +251,48 @@ if location_method == "✏️ Type Address":
             except Exception as e:
                 st.sidebar.error("Geocoding service unavailable")
 
-# ===== METHOD 2: USE MY CURRENT LOCATION (FULLY WORKING - NO ERRORS) =====
+# ===== METHOD 2: USE MY CURRENT LOCATION (PROVEN WORKING) =====
 elif location_method == "📍 Use My Current Location":
     st.sidebar.markdown("### 📍 Find Your Block")
     
-    # Option A: GPS Button (using st.markdown with iframe)
-    st.sidebar.markdown("**Option 1: Use GPS**")
-    
-    # Working GPS using st.markdown with JavaScript
-    gps_html = """
-    <div id="gps_output"></div>
-    <script>
-    function getLocation() {
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    const lat = position.coords.latitude;
-                    const lon = position.coords.longitude;
-                    const url = new URL(window.location.href);
-                    url.searchParams.set('gps_lat', lat);
-                    url.searchParams.set('gps_lon', lon);
-                    window.location.href = url;
-                },
-                (error) => {
-                    let msg = "";
-                    if (error.code === 1) msg = "❌ Please allow location access";
-                    else if (error.code === 2) msg = "❌ Location unavailable";
-                    else if (error.code === 3) msg = "❌ Timeout - try again";
-                    document.getElementById('gps_output').innerHTML = '<span style="color:red;">' + msg + '</span>';
-                }
-            );
-        } else {
-            document.getElementById('gps_output').innerHTML = '<span style="color:red;">❌ GPS not supported</span>';
-        }
-    }
-    </script>
-    <button onclick="getLocation()" style="background:#2e8b57; color:white; padding:8px 16px; border:none; border-radius:8px; cursor:pointer; width:100%; margin-bottom:8px;">
-        📍 Get My Current Location
-    </button>
-    <div id="gps_output" style="margin-top:8px; font-size:12px;"></div>
-    """
-    
-    st.sidebar.markdown(gps_html, unsafe_allow_html=True)
-    
-    # Check for GPS coordinates from URL
-    query_params = st.query_params
-    if 'gps_lat' in query_params and 'gps_lon' in query_params:
-        try:
-            st.session_state.lat = float(query_params['gps_lat'])
-            st.session_state.lon = float(query_params['gps_lon'])
-            st.session_state.location_method = "gps"
-            st.sidebar.success(f"📍 GPS: {st.session_state.lat:.4f}, {st.session_state.lon:.4f}")
-            st.query_params.clear()
-            st.rerun()
-        except:
-            pass
-    
-    st.sidebar.markdown("---")
-    
-    # Option B: Manual Coordinate Entry
-    st.sidebar.markdown("**Option 2: Enter Coordinates Manually**")
-    st.sidebar.caption("Get lat/lon from Google Maps (right-click → What's here?)")
+    # Option A: Manual coordinate entry (MOST RELIABLE)
+    st.sidebar.markdown("**Option 1: Enter Coordinates (Recommended)**")
+    st.sidebar.caption("Get lat/lon from Google Maps: Right-click anywhere → 'What's here?'")
     
     manual_lat = st.sidebar.number_input(
         "Latitude:", 
         value=40.7580, 
         format="%.6f",
-        key="manual_lat",
+        key="manual_lat_gps",
         help="Example: 40.7580 for Times Square"
     )
     manual_lon = st.sidebar.number_input(
         "Longitude:", 
         value=-73.9855, 
         format="%.6f",
-        key="manual_lon",
+        key="manual_lon_gps",
         help="Example: -73.9855 for Times Square"
     )
     
-    if st.sidebar.button("📍 Use These Coordinates", key="manual_btn", use_container_width=True):
-        st.session_state.lat = manual_lat
-        st.session_state.lon = manual_lon
-        st.session_state.location_method = "manual"
-        st.sidebar.success(f"✅ Set to {manual_lat:.4f}, {manual_lon:.4f}")
-        st.rerun()
+    col_btn1, col_btn2 = st.sidebar.columns(2)
+    with col_btn1:
+        if st.button("📍 Apply Coords", key="manual_coords_btn", use_container_width=True):
+            st.session_state.lat = manual_lat
+            st.session_state.lon = manual_lon
+            st.session_state.location_method = "manual"
+            st.sidebar.success(f"✅ Set to {manual_lat:.4f}, {manual_lon:.4f}")
+            st.rerun()
     
     st.sidebar.markdown("---")
     
-    # Option C: Quick Borough Selection
-    st.sidebar.markdown("**Option 3: Quick Borough Select**")
-    st.sidebar.caption("Or pick a borough center:")
+    # Option B: Quick Borough Select (EASIEST)
+    st.sidebar.markdown("**Option 2: Quick Borough Select**")
+    st.sidebar.caption("Pick a borough to analyze:")
     
     quick_borough = st.sidebar.selectbox(
         "Select borough:",
-        ["-- Select --", "Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island"],
-        key="quick_borough"
+        ["Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island"],
+        key="quick_borough_gps"
     )
     
     borough_coords = {
@@ -355,7 +303,7 @@ elif location_method == "📍 Use My Current Location":
         "Staten Island": (40.5795, -74.1502)
     }
     
-    if quick_borough != "-- Select --":
+    if st.sidebar.button("📍 Use Borough Center", key="borough_btn", use_container_width=True):
         coords = borough_coords[quick_borough]
         st.session_state.lat = coords[0]
         st.session_state.lon = coords[1]
@@ -364,7 +312,23 @@ elif location_method == "📍 Use My Current Location":
         st.rerun()
     
     st.sidebar.markdown("---")
-    st.sidebar.info("💡 **Tip:** The GPS button works best on HTTPS (Streamlit Cloud is HTTPS). If it fails, use Manual Coordinates or Borough Select.")
+    
+    # Option C: Click on Map (within the app)
+    st.sidebar.markdown("**Option 3: Click on Map Below**")
+    st.sidebar.caption("Switch to 'Click on Map' tab above to pick any location")
+    
+    if st.sidebar.button("🗺️ Go to Clickable Map", key="goto_map_btn", use_container_width=True):
+        st.session_state.location_method = "🖱️ Click on Map Below"
+        st.rerun()
+    
+    st.sidebar.markdown("---")
+    st.sidebar.info("""
+    💡 **How to get coordinates from Google Maps:**
+    1. Open maps.google.com
+    2. Right-click on any location
+    3. Click "What's here?"
+    4. Copy the latitude and longitude
+    """)
 # Method 3: Click on Map
 elif location_method == "🖱️ Click on Map Below":
     st.sidebar.info("🖱️ Click anywhere on the map below")
