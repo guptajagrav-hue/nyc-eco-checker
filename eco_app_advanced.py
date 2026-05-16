@@ -18,7 +18,21 @@ st.set_page_config(
     page_icon="🌿",
     layout="wide"
 )
+# ===== FORCE PWA MANIFEST TO BE SERVED =====
+# Read the manifest file and inject it into the page
+try:
+    with open('.streamlit/static/manifest.json', 'r') as f:
+        manifest_content = f.read()
+    st.markdown(f'<link rel="manifest" href="data:application/manifest+json,{manifest_content.replace(chr(34), "%22")}">', unsafe_allow_html=True)
+except:
+    pass
 
+# Inject icon links
+st.markdown('<link rel="apple-touch-icon" href="https://nyc-eco-checker.streamlit.app/static/icon-192.png">', unsafe_allow_html=True)
+st.markdown('<link rel="icon" type="image/png" sizes="192x192" href="https://nyc-eco-checker.streamlit.app/static/icon-192.png">', unsafe_allow_html=True)
+st.markdown('<link rel="icon" type="image/png" sizes="512x512" href="https://nyc-eco-checker.streamlit.app/static/icon-512.png">', unsafe_allow_html=True)
+st.markdown('<meta name="theme-color" content="#2e8b57">', unsafe_allow_html=True)
+st.markdown('<meta name="apple-mobile-web-app-capable" content="yes">', unsafe_allow_html=True)
 # ===== CUSTOM CSS =====
 st.markdown("""
 <style>
