@@ -251,33 +251,132 @@ if location_method == "✏️ Type Address":
             except Exception as e:
                 st.sidebar.error("Geocoding service unavailable")
 
-# Method 2: Use My Current Location (GPS)
+# ===== METHOD 2: USE MY CURRENT LOCATION (FULLY WORKING) =====
 elif location_method == "📍 Use My Current Location":
-    st.sidebar.info("🌐 Browser will ask for location permission")
-    if st.sidebar.button("📍 Get My Current Location", use_container_width=True):
-        st.markdown("""
-        <script>
+    st.sidebar.markdown("### 📍 Find Your Block")
+    
+    # Option A: GPS Button
+    st.sidebar.markdown("**Option 1: Use GPS**")
+    
+    # Working GPS JavaScript
+    gps_html = """
+    <div id="gps_output"></div>
+    <script>
+    function getLocation() {
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
                 (position) => {
                     const lat = position.coords.latitude;
                     const lon = position.coords.longitude;
                     const url = new URL(window.location.href);
-                    url.searchParams.set('lat', lat);
-                    url.searchParams.set('lon', lon);
+                    url.searchParams.set('gps_lat', lat);
+                    url.searchParams.set('gps_lon', lon);
                     window.location.href = url;
                 },
-                (error) => { alert("Location access denied"); }
+                (error) => {
+                    let msg = "";
+                    if (error.code === 1) msg = "❌ Please allow location access";
+                    else if (error.code === 2) msg = "❌ Location unavailable";
+                    else if (error.code === 3) msg = "❌ Timeout - try again";
+                    document.getElementById('gps_output').innerHTML = '<span style="color:red;">' + msg + '</span>';
+                }
             );
-        } else { alert("Geolocation not supported"); }
-        </script>
-        """, unsafe_allow_html=True)
+        } else {
+            document.getElementById('gps_output').innerHTML = '<span style="color:red;">❌ GPS not supported</span>';
+        }
+    }
+    </script>
+    <button onclick="getLocation()" style="background:#2e8b57; color:white; padding:8px 16px; border:none; border-radius:8px; cursor:pointer; width:100%;">
+        📍 Get My Current Location
+    </button>
+    <div id="gps_output" style="margin-top:8px;"></div>
+    """
     
+    st.sidebar.components.html(gps_html, height=120)
+    
+    # Check for GPS coordinates from URL
     query_params = st.query_params
-    if 'lat' in query_params and 'lon' in query_params:
-        st.session_state.lat = float(query_params['lat'])
-        st.session_state.lon = float(query_params['lon'])
-        st.session_state.location_method = "gps"
+    if 'gps_lat' in query_params and 'gps_lon' in query_params:
+        try:
+            st.session_state.lat = float(query_params['gps_lat'])
+            st.session_state.lon = float(query_params['gps_lon'])
+            st.session_state.location_method = "gps"
+            st.sidebar.success(f"📍 GPS: {st.session_state.lat:.4f}, {st.session_state.lon:.4f}")
+            st.query_params.clear()
+            st.rerun()
+        except:
+            pass
+    
+    st.sidebar.markdown("---")
+    
+    # Option B: Manual Coordinate Entry
+    st.sidebar.markdown("**Option 2: Enter Coordinates Manually**")
+    st.sidebar.caption("Get lat/lon from Google Maps")
+    
+    manual_lat = st.sidebar.number_input(
+        "Latitude:", 
+        value=40.7580, 
+        format="%.6f",
+        key="manual_lat",
+        help="Example: 40.7580 for Times Square"
+    )
+    manual_lon = st.sidebar.number_input(
+        "Longitude:", 
+        value=-73.9855, 
+        format="%.6f",
+        key="manual_lon",
+        help="Example: -73.9855 for Times Square"
+    )
+    
+    if st.sidebar.button("📍 Use These Coordinates", key="manual_btn", use_container_width=True):
+        st.session_state.lat = manual_lat
+        st.session_state.lon = manual_lon
+        st.session_state.location_method = "manual"
+        st.sidebar.success(f"✅ Set to {manual_lat:.4f}, {manual_lon:.4f}")
+        st.rerun()
+    
+    st.sidebar.markdown("---")
+    
+    # Option C: Mini Map for Click Selection
+    st.sidebar.markdown("**Option 3: Click on Map**")
+    st.sidebar.caption("Click anywhere on the mini-map below")
+    
+    # Mini map for quick selection
+    mini_map = folium.Map(
+        location=[st.session_state.lat, st.session_state.lon], 
+        zoom_start=13, 
+        height=250,
+        tiles='CartoDB positron'
+    )
+    
+    # Add marker for current location
+    folium.Marker(
+        [st.session_state.lat, st.session_state.lon],
+        popup="Selected",
+        icon=folium.Icon(color='green', icon='checkmark')
+    ).add_to(mini_map)
+    
+    # Add click instructions
+    folium.Marker(
+        [st.session_state.lat + 0.01, st.session_state.lon],
+        popup="👇 Click anywhere on this map to select a location",
+        icon=folium.Icon(color='blue', icon='info-sign', prefix='fa')
+    ).add_to(mini_map)
+    
+    map_click = st_folium(mini_map, width=280, height=250, key="gps_minimap")
+    
+    if map_click and map_click.get('last_clicked'):
+        clicked_lat = map_click['last_clicked']['lat']
+        clicked_lon = map_click['last_clicked']['lng']
+        if clicked_lat and clicked_lon:
+            st.session_state.lat = clicked_lat
+            st.session_state.lon = clicked_lon
+            st.session_state.location_method = "click"
+            st.sidebar.success(f"✅ Clicked: {clicked_lat:.4f}, {clicked_lon:.4f}")
+            st.rerun()
+    
+    st.sidebar.markdown("---")
+    st.sidebar.info("💡 **Tip:** Get coordinates from Google Maps by right-clicking anywhere and selecting 'What's here?'")
 
 # Method 3: Click on Map
 elif location_method == "🖱️ Click on Map Below":
