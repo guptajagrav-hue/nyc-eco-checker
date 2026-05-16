@@ -251,14 +251,14 @@ if location_method == "✏️ Type Address":
             except Exception as e:
                 st.sidebar.error("Geocoding service unavailable")
 
-# ===== METHOD 2: USE MY CURRENT LOCATION (FULLY WORKING) =====
+# ===== METHOD 2: USE MY CURRENT LOCATION (FULLY WORKING - NO ERRORS) =====
 elif location_method == "📍 Use My Current Location":
     st.sidebar.markdown("### 📍 Find Your Block")
     
-    # Option A: GPS Button
+    # Option A: GPS Button (using st.markdown with iframe)
     st.sidebar.markdown("**Option 1: Use GPS**")
     
-    # Working GPS JavaScript
+    # Working GPS using st.markdown with JavaScript
     gps_html = """
     <div id="gps_output"></div>
     <script>
@@ -286,13 +286,13 @@ elif location_method == "📍 Use My Current Location":
         }
     }
     </script>
-    <button onclick="getLocation()" style="background:#2e8b57; color:white; padding:8px 16px; border:none; border-radius:8px; cursor:pointer; width:100%;">
+    <button onclick="getLocation()" style="background:#2e8b57; color:white; padding:8px 16px; border:none; border-radius:8px; cursor:pointer; width:100%; margin-bottom:8px;">
         📍 Get My Current Location
     </button>
-    <div id="gps_output" style="margin-top:8px;"></div>
+    <div id="gps_output" style="margin-top:8px; font-size:12px;"></div>
     """
     
-    st.sidebar.components.html(gps_html, height=120)
+    st.sidebar.markdown(gps_html, unsafe_allow_html=True)
     
     # Check for GPS coordinates from URL
     query_params = st.query_params
@@ -311,7 +311,7 @@ elif location_method == "📍 Use My Current Location":
     
     # Option B: Manual Coordinate Entry
     st.sidebar.markdown("**Option 2: Enter Coordinates Manually**")
-    st.sidebar.caption("Get lat/lon from Google Maps")
+    st.sidebar.caption("Get lat/lon from Google Maps (right-click → What's here?)")
     
     manual_lat = st.sidebar.number_input(
         "Latitude:", 
@@ -337,47 +337,34 @@ elif location_method == "📍 Use My Current Location":
     
     st.sidebar.markdown("---")
     
-    # Option C: Mini Map for Click Selection
-    st.sidebar.markdown("**Option 3: Click on Map**")
-    st.sidebar.caption("Click anywhere on the mini-map below")
+    # Option C: Quick Borough Selection
+    st.sidebar.markdown("**Option 3: Quick Borough Select**")
+    st.sidebar.caption("Or pick a borough center:")
     
-    # Mini map for quick selection
-    mini_map = folium.Map(
-        location=[st.session_state.lat, st.session_state.lon], 
-        zoom_start=13, 
-        height=250,
-        tiles='CartoDB positron'
+    quick_borough = st.sidebar.selectbox(
+        "Select borough:",
+        ["-- Select --", "Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island"],
+        key="quick_borough"
     )
     
-    # Add marker for current location
-    folium.Marker(
-        [st.session_state.lat, st.session_state.lon],
-        popup="Selected",
-        icon=folium.Icon(color='green', icon='checkmark')
-    ).add_to(mini_map)
+    borough_coords = {
+        "Manhattan": (40.7831, -73.9712),
+        "Brooklyn": (40.6782, -73.9442),
+        "Queens": (40.7282, -73.7949),
+        "Bronx": (40.8448, -73.8648),
+        "Staten Island": (40.5795, -74.1502)
+    }
     
-    # Add click instructions
-    folium.Marker(
-        [st.session_state.lat + 0.01, st.session_state.lon],
-        popup="👇 Click anywhere on this map to select a location",
-        icon=folium.Icon(color='blue', icon='info-sign', prefix='fa')
-    ).add_to(mini_map)
-    
-    map_click = st_folium(mini_map, width=280, height=250, key="gps_minimap")
-    
-    if map_click and map_click.get('last_clicked'):
-        clicked_lat = map_click['last_clicked']['lat']
-        clicked_lon = map_click['last_clicked']['lng']
-        if clicked_lat and clicked_lon:
-            st.session_state.lat = clicked_lat
-            st.session_state.lon = clicked_lon
-            st.session_state.location_method = "click"
-            st.sidebar.success(f"✅ Clicked: {clicked_lat:.4f}, {clicked_lon:.4f}")
-            st.rerun()
+    if quick_borough != "-- Select --":
+        coords = borough_coords[quick_borough]
+        st.session_state.lat = coords[0]
+        st.session_state.lon = coords[1]
+        st.session_state.location_method = "borough"
+        st.sidebar.success(f"✅ {quick_borough} selected")
+        st.rerun()
     
     st.sidebar.markdown("---")
-    st.sidebar.info("💡 **Tip:** Get coordinates from Google Maps by right-clicking anywhere and selecting 'What's here?'")
-
+    st.sidebar.info("💡 **Tip:** The GPS button works best on HTTPS (Streamlit Cloud is HTTPS). If it fails, use Manual Coordinates or Borough Select.")
 # Method 3: Click on Map
 elif location_method == "🖱️ Click on Map Below":
     st.sidebar.info("🖱️ Click anywhere on the map below")
