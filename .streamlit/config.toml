@@ -3,10 +3,11 @@ enableStaticServing = true
 maxUploadSize = 10
 
 [theme]
-primaryColor = "#2e8b57"
-backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f0f2f6"
-textColor = "#262730"
+primaryColor = "#7c9c82"
+backgroundColor = "#f4f6f4"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#2b2f33"
+font = "sans serif"
 
 [browser]
 gatherUsageStats = false
